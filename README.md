@@ -31,6 +31,21 @@ curl -X POST http://127.0.0.1:8000/analyzeContour \
 
 See [docs/API.md](docs/API.md) for the full request/response reference.
 
+## Run the frontend
+
+A small React app to upload a map, pick a precision, and view results
+in the browser.
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Open `http://127.0.0.1:5173`. It talks to the API at
+`http://127.0.0.1:8000` by default (make sure that's running too); set
+`VITE_API_BASE_URL` to point it elsewhere.
+
 ## Run tests
 
 ```bash
@@ -84,6 +99,8 @@ samples/
 docs/
   API.md          # API reference
   REPORT.md       # submission report
+frontend/
+  src/App.jsx     # upload form + results display
 ```
 
 ## Known limitations / next-phase ideas

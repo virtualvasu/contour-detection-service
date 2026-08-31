@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.pipeline import analyze_contour_file
 from app.schemas import AnalyzeContourResponse
@@ -12,6 +13,15 @@ app = FastAPI(
     description="Upload a contour map (KML/KMZ) and get back suggested pond "
     "sites with their catchment area and storage volume.",
     version="0.1.0",
+)
+
+# Allows the local React frontend (a separate dev server/origin) to call this
+# API directly from the browser.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
