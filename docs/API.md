@@ -80,6 +80,9 @@ just the requested cell size.
       "catchment_boundary": [ [ { "lon": 81.299, "lat": 21.259 }, "..." ] ],
       "pond_boundary": [ [ { "lon": 81.300, "lat": 21.260 }, "..." ] ]
     }
+  ],
+  "contours": [
+    { "elevation_m": 277.0, "points": [ { "lon": 81.286, "lat": 21.263 }, "..." ] }
   ]
 }
 ```
@@ -97,9 +100,18 @@ just the requested cell size.
 | `pond_sites[].pond_area_m2` | Surface area of the pond itself at `spill_elevation_m` |
 | `pond_sites[].estimated_volume_m3` | Estimated storage volume at `spill_elevation_m` |
 | `pond_sites[].catchment_boundary` / `pond_boundary` | Polygon ring(s) in `[lon, lat]`, one outer ring per disconnected patch |
+| `contours` | The input contour lines themselves (elevation + point path), simplified for display — for drawing the pond/catchment boundaries in context on the original map, e.g. on a canvas/SVG in a UI |
 
-Sites are returned ranked (`rank` 1 = best), ordered by contributing
-catchment area, up to 3 sites.
+Sites are returned ranked (`rank` 1 = best), ordered by estimated
+storage volume (largest first), up to 3 sites. Candidates are first
+shortlisted by contributing catchment area (to filter out
+interpolation-noise depressions), then the shortlist is re-ranked by
+volume for the final result.
+
+`contours` is simplified (Douglas-Peucker, tolerance ~half a grid cell)
+so it's light enough to send back on every request — on the sample map
+it cuts ~159k source points down to ~17k while keeping the same shape at
+the analysis grid's resolution.
 
 **Error responses**
 

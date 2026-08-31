@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import BoundaryDiagram from './BoundaryDiagram'
+import ContourMap from './ContourMap'
 import './App.css'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000'
@@ -25,6 +27,7 @@ function PondSiteCard({ site }) {
   return (
     <div className="card">
       <h3>Site #{site.rank}</h3>
+      <BoundaryDiagram site={site} />
       <dl>
         <dt>Location</dt>
         <dd>{site.location.lat.toFixed(5)}, {site.location.lon.toFixed(5)}</dd>
@@ -150,6 +153,12 @@ export default function App() {
         <section className="results">
           <p className="source-file">Source file: {result.source_file}</p>
           <TerrainSummary terrain={result.terrain} />
+
+          <div className="card">
+            <h3>Map</h3>
+            <ContourMap contours={result.contours} pondSites={result.pond_sites} />
+          </div>
+
           <h2>Pond sites ({result.pond_sites.length})</h2>
           <div className="site-grid">
             {result.pond_sites.map((site) => (

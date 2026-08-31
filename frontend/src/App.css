@@ -2,6 +2,9 @@
   max-width: 900px;
   margin: 0 auto;
   padding: 2rem 1.5rem 4rem;
+  --catchment-color: #eb6834;
+  --pond-color: #2a78d6;
+  --contour-color: #9a9a94;
 }
 
 header h1 {
@@ -101,4 +104,104 @@ button:disabled {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
   gap: 1rem;
+}
+
+.diagram {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.diagram svg {
+  background: #fafafa;
+  border: 1px solid #eee;
+  border-radius: 8px;
+}
+
+.catchment-shape {
+  fill: color-mix(in srgb, var(--catchment-color) 12%, transparent);
+  stroke: var(--catchment-color);
+  stroke-width: 2;
+}
+
+.pond-shape {
+  fill: color-mix(in srgb, var(--pond-color) 55%, transparent);
+  stroke: var(--pond-color);
+  stroke-width: 1.5;
+}
+
+.site-marker {
+  fill: #1a1a1a;
+  stroke: #fff;
+  stroke-width: 1;
+}
+
+.diagram-empty {
+  color: #888;
+  font-size: 0.85rem;
+  font-style: italic;
+}
+
+.diagram-legend {
+  display: flex;
+  gap: 1rem;
+  font-size: 0.78rem;
+  color: #555;
+}
+
+.swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  margin-right: 0.3rem;
+  vertical-align: middle;
+}
+
+.catchment-swatch {
+  background: var(--catchment-color);
+}
+
+.pond-swatch {
+  background: var(--pond-color);
+}
+
+.contour-swatch {
+  background: var(--contour-color);
+}
+
+.contour-map {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.contour-map svg {
+  width: 100%;
+  height: auto;
+  background: #fafafa;
+  border: 1px solid #eee;
+  border-radius: 8px;
+}
+
+.map-background {
+  fill: #fcfcfb;
+}
+
+.contour-line {
+  fill: none;
+  stroke: var(--contour-color);
+  stroke-width: 0.75;
+}
+
+.site-label {
+  font-size: 12px;
+  font-weight: 700;
+  fill: #1a1a1a;
+  paint-order: stroke;
+  stroke: #fff;
+  stroke-width: 3px;
 }

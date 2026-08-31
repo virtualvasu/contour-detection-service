@@ -11,10 +11,17 @@ import numpy as np
 
 from app.catchment import build_pond_candidate, find_sink_candidates, mask_to_polygon
 from app.kml_parser import parse_contours
-from app.schemas import AnalyzeContourResponse, LonLat, PondSite, TerrainSummary
-from app.terrain import build_dem, compute_flow_model
+from app.schemas import AnalyzeContourResponse, ContourLineOut, LonLat, PondSite, TerrainSummary
+from app.terrain import build_dem, compute_flow_model, simplify_contours_for_display
 
 TOP_N_SITES = 3
+
+# How many depressions to evaluate before picking the final ranking. We first
+# gather a wider pool ranked by contributing catchment area (a cheap signal
+# of "this is a real drainage low point, not noise"), then compute the full
+# storage volume for each and re-sort by that, so the top N sites shown are
+# the biggest by volume rather than just the biggest by catchment.
+CANDIDATE_POOL_SIZE = 10
 
 
 def _ring_to_lonlat_models(ring: list[tuple[float, float]]) -> list[LonLat]:
@@ -29,12 +36,13 @@ def analyze_contour_file(
     dem = build_dem(contours, cell_size_m=cell_size_m)
     flow_model = compute_flow_model(dem)
 
-    sinks = find_sink_candidates(flow_model, top_n=TOP_N_SITES)
+    sinks = find_sink_candidates(flow_model, top_n=CANDIDATE_POOL_SIZE)
+    candidates = [build_pond_candidate(flow_model, sink) for sink in sinks]
+    candidates.sort(key=lambda c: c.volume_m3, reverse=True)
+    candidates = candidates[:TOP_N_SITES]
 
     pond_sites: list[PondSite] = []
-    for rank, sink in enumerate(sinks, start=1):
-        candidate = build_pond_candidate(flow_model, sink)
-
+    for rank, candidate in enumerate(candidates, start=1):
         lon, lat = dem.transformer_to_lonlat.transform(
             dem.x_coords[candidate.col], dem.y_coords[candidate.row]
         )
@@ -69,8 +77,14 @@ def analyze_contour_file(
         projected_crs=dem.crs.to_string(),
     )
 
+    display_contours = [
+        ContourLineOut(elevation_m=elevation, points=_ring_to_lonlat_models(points))
+        for elevation, points in simplify_contours_for_display(contours, dem)
+    ]
+
     return AnalyzeContourResponse(
         source_file=filename,
         terrain=terrain_summary,
         pond_sites=pond_sites,
+        contours=display_contours,
     )

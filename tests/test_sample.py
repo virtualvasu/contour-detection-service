@@ -29,6 +29,9 @@ def test_pipeline_runs_on_sample(sample_bytes):
     assert result.terrain.contour_interval_m > 0
     assert len(result.pond_sites) > 0
 
+    volumes = [site.estimated_volume_m3 for site in result.pond_sites]
+    assert volumes == sorted(volumes, reverse=True), "sites must be ranked by volume, largest first"
+
     for site in result.pond_sites:
         assert site.catchment_area_m2 > 0
         assert site.pond_area_m2 > 0

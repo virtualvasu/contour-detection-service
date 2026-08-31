@@ -24,6 +24,11 @@ class PondSite(BaseModel):
     pond_boundary: list[list[LonLat]]
 
 
+class ContourLineOut(BaseModel):
+    elevation_m: float
+    points: list[LonLat]
+
+
 class TerrainSummary(BaseModel):
     min_elevation_m: float
     max_elevation_m: float
@@ -39,3 +44,4 @@ class AnalyzeContourResponse(BaseModel):
     source_file: str
     terrain: TerrainSummary
     pond_sites: list[PondSite]
+    contours: list[ContourLineOut]

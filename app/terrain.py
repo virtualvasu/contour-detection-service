@@ -20,6 +20,7 @@ from dataclasses import dataclass
 import numpy as np
 from pyproj import CRS, Transformer
 from scipy.interpolate import griddata
+from shapely.geometry import LineString
 
 from app.kml_parser import ContourLine
 
@@ -56,6 +57,7 @@ class Dem:
     x_coords: np.ndarray           # (cols,) cell-center x in projected metres
     y_coords: np.ndarray           # (rows,) cell-center y in projected metres, descending
     transformer_to_lonlat: Transformer
+    transformer_to_projected: Transformer
     crs: CRS
     contour_interval: float        # vertical spacing between input contour lines, in metres
 
@@ -143,9 +145,33 @@ def build_dem(contours: list[ContourLine], cell_size_m: float | None = None) -> 
         x_coords=x_coords,
         y_coords=y_coords,
         transformer_to_lonlat=to_lonlat,
+        transformer_to_projected=to_utm,
         crs=crs,
         contour_interval=_detect_contour_interval(contours),
     )
+
+
+def simplify_contours_for_display(
+    contours: list[ContourLine], dem: Dem
+) -> list[tuple[float, list[tuple[float, float]]]]:
+    """Thin out each contour line so it's light enough to send to a client
+    and draw on a map, while still looking right at the DEM's resolution.
+
+    Simplifying is done in projected metres (not raw lon/lat degrees) so the
+    tolerance means the same thing — about half a grid cell — everywhere on
+    the map. Returns (elevation, [(lon, lat), ...]) pairs.
+    """
+    tolerance = dem.cell_size / 2
+    simplified = []
+    for contour in contours:
+        lons = [p[0] for p in contour.points]
+        lats = [p[1] for p in contour.points]
+        xs, ys = dem.transformer_to_projected.transform(lons, lats)
+        line = LineString(zip(xs, ys)).simplify(tolerance, preserve_topology=False)
+
+        simple_lons, simple_lats = dem.transformer_to_lonlat.transform(*line.xy)
+        simplified.append((contour.elevation, list(zip(simple_lons, simple_lats))))
+    return simplified
 
 
 def compute_flow_model(dem: Dem) -> FlowModel:
