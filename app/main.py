@@ -32,7 +32,8 @@ def health() -> dict:
 
 @app.post("/analyzeContour", response_model=AnalyzeContourResponse)
 async def analyze_contour(
-    file: UploadFile = File(...),
+    contour_map: UploadFile | None = File(None),
+    file: UploadFile | None = File(None),
     cell_size_m: float | None = Query(
         None,
         gt=0,
@@ -42,11 +43,15 @@ async def analyze_contour(
         "based on the map's size.",
     ),
 ) -> AnalyzeContourResponse:
-    name = file.filename or ""
+    upload = contour_map or file
+    if upload is None:
+        raise HTTPException(status_code=422, detail="Missing required file field 'contour_map'")
+
+    name = upload.filename or ""
     if not name.lower().endswith((".kml", ".kmz")):
         raise HTTPException(status_code=400, detail="Only .kml or .kmz files are accepted")
 
-    raw_bytes = await file.read()
+    raw_bytes = await upload.read()
     if not raw_bytes:
         raise HTTPException(status_code=400, detail="Uploaded file is empty")
 

@@ -11,10 +11,11 @@ their catchment area and estimated storage volume.
 **Request**
 
 - Content type: `multipart/form-data`
-- Field: `file` — a `.kml` or `.kmz` contour map, where each contour line
-  is a `Placemark` whose `<name>` contains the elevation value (this is
-  the standard shape produced by common contour-generation tools,
-  including the sample file in `samples/`).
+- Field: `contour_map` (also accepted: `file`) — a `.kml` or `.kmz`
+  contour map, where each contour line is a `Placemark` whose `<name>`
+  contains the elevation value (this is the standard shape produced by
+  common contour-generation tools, including the sample file in
+  `samples/`).
 - Query parameter `cell_size_m` (optional, float, must be `> 0`) — the
   size of one grid cell in metres, i.e. how fine a resolution the terrain
   is analyzed at. Smaller values give more precise pond/catchment
@@ -29,14 +30,14 @@ Example — default resolution:
 
 ```bash
 curl -X POST http://localhost:8000/analyzeContour \
-  -F "file=@samples/contours_1m.kml"
+  -F "contour_map=@samples/contours_1m.kml"
 ```
 
 Example — request finer 3m cells:
 
 ```bash
 curl -X POST "http://localhost:8000/analyzeContour?cell_size_m=3" \
-  -F "file=@samples/contours_1m.kml"
+  -F "contour_map=@samples/contours_1m.kml"
 ```
 
 Rough timing on the sample map (6.7MB KML, ~1355 contour lines):
@@ -118,7 +119,7 @@ the analysis grid's resolution.
 | Status | Cause |
 |---|---|
 | `400` | File extension is not `.kml`/`.kmz`, or the uploaded file is empty |
-| `422` | File could not be parsed as valid KML/KMZ, or no usable contour lines / no plausible pond depressions were found in it |
+| `422` | No file was sent under `contour_map` (or `file`), the file could not be parsed as valid KML/KMZ, or no usable contour lines / no plausible pond depressions were found in it |
 
 ## GET /health
 

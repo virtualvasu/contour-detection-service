@@ -56,6 +56,26 @@ def test_api_analyze_contour_endpoint():
     assert len(body["pond_sites"]) > 0
 
 
+def test_api_analyze_contour_endpoint_accepts_contour_map_field():
+    client = TestClient(app)
+    with open(SAMPLE_PATH, "rb") as f:
+        response = client.post(
+            "/analyzeContour",
+            files={"contour_map": ("contours_1m.kml", f, "application/vnd.google-earth.kml+xml")},
+        )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["source_file"] == "contours_1m.kml"
+    assert len(body["pond_sites"]) > 0
+
+
+def test_api_rejects_missing_file_field():
+    client = TestClient(app)
+    response = client.post("/analyzeContour")
+    assert response.status_code == 422
+    assert "contour_map" in response.json()["detail"]
+
+
 def test_api_rejects_wrong_extension():
     client = TestClient(app)
     response = client.post(

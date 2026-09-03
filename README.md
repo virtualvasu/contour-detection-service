@@ -26,7 +26,7 @@ Try it with the provided sample map:
 
 ```bash
 curl -X POST http://127.0.0.1:8000/analyzeContour \
-  -F "file=@samples/contours_1m.kml"
+  -F "contour_map=@samples/contours_1m.kml"
 ```
 
 See [docs/API.md](docs/API.md) for the full request/response reference.
