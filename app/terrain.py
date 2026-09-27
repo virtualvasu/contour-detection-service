@@ -177,6 +177,24 @@ def build_dem(
     )
 
 
+def _simplify_contours(
+    contours: list[ContourLine],
+    tolerance_m: float,
+    to_projected: Transformer,
+    to_lonlat: Transformer,
+) -> list[tuple[float, list[tuple[float, float]]]]:
+    simplified = []
+    for contour in contours:
+        lons = [p[0] for p in contour.points]
+        lats = [p[1] for p in contour.points]
+        xs, ys = to_projected.transform(lons, lats)
+        line = LineString(zip(xs, ys)).simplify(tolerance_m, preserve_topology=False)
+
+        simple_lons, simple_lats = to_lonlat.transform(*line.xy)
+        simplified.append((contour.elevation, list(zip(simple_lons, simple_lats))))
+    return simplified
+
+
 def simplify_contours_for_display(
     contours: list[ContourLine], dem: Dem
 ) -> list[tuple[float, list[tuple[float, float]]]]:
@@ -187,17 +205,24 @@ def simplify_contours_for_display(
     tolerance means the same thing — about half a grid cell — everywhere on
     the map. Returns (elevation, [(lon, lat), ...]) pairs.
     """
-    tolerance = dem.cell_size / 2
-    simplified = []
-    for contour in contours:
-        lons = [p[0] for p in contour.points]
-        lats = [p[1] for p in contour.points]
-        xs, ys = dem.transformer_to_projected.transform(lons, lats)
-        line = LineString(zip(xs, ys)).simplify(tolerance, preserve_topology=False)
+    return _simplify_contours(
+        contours, dem.cell_size / 2, dem.transformer_to_projected, dem.transformer_to_lonlat
+    )
 
-        simple_lons, simple_lats = dem.transformer_to_lonlat.transform(*line.xy)
-        simplified.append((contour.elevation, list(zip(simple_lons, simple_lats))))
-    return simplified
+
+def simplify_contours_for_preview(
+    contours: list[ContourLine],
+) -> list[tuple[float, list[tuple[float, float]]]]:
+    """Same as simplify_contours_for_display, but without building a DEM
+    first: uses the tolerance the default-resolution grid would get. This
+    keeps showing an uploaded map (before any analysis) fast.
+    """
+    lons, lats, _ = _vertex_arrays(contours)
+    _, to_utm, to_lonlat = _projection_for(lons, lats)
+    xs, ys = to_utm.transform(lons, lats)
+    longer_side = max(np.ptp(xs), np.ptp(ys))
+    cell_size = longer_side / _TARGET_GRID_SIDE if longer_side > 0 else 1.0
+    return _simplify_contours(contours, cell_size / 2, to_utm, to_lonlat)
 
 
 def compute_flow_model(dem: Dem) -> FlowModel:
