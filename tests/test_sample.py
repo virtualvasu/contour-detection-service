@@ -105,16 +105,17 @@ def test_api_rejects_oversized_upload(monkeypatch):
     assert response.status_code == 413
 
 
-def test_api_returns_503_when_all_analysis_slots_are_busy(monkeypatch):
+@pytest.mark.parametrize("endpoint", ["/analyzeContour", "/previewContour"])
+def test_api_returns_503_when_all_analysis_slots_are_busy(monkeypatch, endpoint):
     slots = threading.BoundedSemaphore(1)
-    slots.acquire()  # another analysis is holding the only slot
+    slots.acquire()  # another request is holding the only slot
     monkeypatch.setattr("app.main._analysis_slots", slots)
     monkeypatch.setattr("app.main.ANALYSIS_QUEUE_TIMEOUT_S", 0.01)
 
     client = TestClient(app)
     with open(SAMPLE_PATH, "rb") as f:
         response = client.post(
-            "/analyzeContour",
+            endpoint,
             files={"contour_map": ("contours_1m.kml", f, "application/vnd.google-earth.kml+xml")},
         )
     assert response.status_code == 503
