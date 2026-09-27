@@ -159,26 +159,31 @@ def _flood_fill_basin(flow_model: FlowModel, sink: tuple[int, int]):
 
 
 def mask_to_polygon(mask: np.ndarray, dem) -> list[list[tuple[float, float]]]:
-    """Union the grid cells in `mask` into polygon ring(s), in lon/lat."""
-    half = dem.cell_size / 2
+    """Union the grid cells in `mask` into polygon ring(s), in lon/lat.
+
+    Cells are merged in integer (col, row) grid units and only then scaled to
+    metres. Doing the union directly in projected metres leaves hairline
+    floating-point gaps between neighbouring rows, so a single catchment came
+    back as a stack of one-cell-tall strips.
+    """
     rows, cols = np.where(mask)
     if rows.size == 0:
         return []
-    squares = [
-        box(dem.x_coords[c] - half, dem.y_coords[r] - half,
-            dem.x_coords[c] + half, dem.y_coords[r] + half)
-        for r, c in zip(rows, cols)
-    ]
-    merged = unary_union(squares)
-    merged = merged.simplify(dem.cell_size / 2, preserve_topology=True)
+    squares = [box(c, r, c + 1, r + 1) for r, c in zip(rows.tolist(), cols.tolist())]
+    merged = unary_union(squares).simplify(0.5, preserve_topology=True)
+
+    # grid units -> projected metres: col 0's left edge / row 0's top edge
+    left = dem.x_coords[0] - dem.cell_size / 2
+    top = dem.y_coords[0] + dem.cell_size / 2
 
     polygons = [merged] if isinstance(merged, Polygon) else list(merged.geoms)
     rings = []
     for poly in polygons:
-        xs, ys = poly.exterior.coords.xy
-        lons, lats = dem.transformer_to_lonlat.transform(np.array(xs), np.array(ys))
-        rings.append(list(zip(lons.tolist() if hasattr(lons, "tolist") else lons,
-                               lats.tolist() if hasattr(lats, "tolist") else lats)))
+        gx, gy = (np.asarray(v) for v in poly.exterior.coords.xy)
+        xs = left + gx * dem.cell_size
+        ys = top - gy * dem.cell_size
+        lons, lats = dem.transformer_to_lonlat.transform(xs, ys)
+        rings.append(list(zip(np.asarray(lons).tolist(), np.asarray(lats).tolist())))
     return rings
 
 
