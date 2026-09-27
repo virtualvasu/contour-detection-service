@@ -92,3 +92,13 @@ def test_api_rejects_invalid_kml():
         files={"file": ("broken.kml", b"not xml at all", "application/vnd.google-earth.kml+xml")},
     )
     assert response.status_code == 422
+
+
+def test_api_rejects_oversized_upload(monkeypatch):
+    monkeypatch.setattr("app.main.MAX_UPLOAD_BYTES", 10)
+    client = TestClient(app)
+    response = client.post(
+        "/analyzeContour",
+        files={"contour_map": ("big.kml", b"x" * 11, "application/vnd.google-earth.kml+xml")},
+    )
+    assert response.status_code == 413

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -9,6 +11,10 @@ from app.catchment import DEFAULT_RAINFALL_MM, DEFAULT_RUNOFF_COEFFICIENT
 from app.pipeline import analyze_contour_file
 from app.schemas import AnalyzeContourResponse
 from app.selection import parse_area
+
+# Largest contour map accepted, in MB. Bigger files are rejected up front
+# instead of tying up a worker for minutes.
+MAX_UPLOAD_BYTES = int(float(os.environ.get("MAX_UPLOAD_MB", "50")) * 1024 * 1024)
 
 app = FastAPI(
     title="Contour Detection Service",
@@ -75,7 +81,12 @@ def analyze_contour(
     if not name.lower().endswith((".kml", ".kmz")):
         raise HTTPException(status_code=400, detail="Only .kml or .kmz files are accepted")
 
-    raw_bytes = upload.file.read()
+    raw_bytes = upload.file.read(MAX_UPLOAD_BYTES + 1)
+    if len(raw_bytes) > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File is too large (limit is {MAX_UPLOAD_BYTES // (1024 * 1024)} MB)",
+        )
     if not raw_bytes:
         raise HTTPException(status_code=400, detail="Uploaded file is empty")
 
