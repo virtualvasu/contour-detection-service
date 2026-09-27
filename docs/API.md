@@ -25,6 +25,13 @@ their catchment area and estimated storage volume.
   grid is still capped between 40 and 1500 cells per side as a safety
   limit, so an extreme request degrades to the closest allowed
   resolution rather than hanging.
+- Query parameters `rainfall_mm` (optional, default `1200`, `0 < x ≤ 10000`)
+  and `runoff_coefficient` (optional, default `0.3`, `0 < x ≤ 1`) — the
+  rainfall and the share of it that runs off the land, used to estimate
+  how much water each site can expect to collect. The defaults are a
+  typical annual rainfall for central India and a common coefficient for
+  rural, partly cultivated land; pass the values for the area being
+  planned for better estimates.
 - Form field `area` (optional) — the land area to analyze, as a GeoJSON
   `Polygon` or `MultiPolygon` (or a `Feature` wrapping one) in lon/lat.
   Contour lines are clipped to it, and pond sites and catchments are only
@@ -80,6 +87,7 @@ just the requested cell size.
     "cell_size_m": 10.8,
     "projected_crs": "EPSG:32644"
   },
+  "runoff": { "rainfall_mm": 1200.0, "runoff_coefficient": 0.3 },
   "pond_sites": [
     {
       "rank": 1,
@@ -91,6 +99,8 @@ just the requested cell size.
       "catchment_area_hectares": 4.36,
       "pond_area_m2": 2568.7,
       "estimated_volume_m3": 5662.8,
+      "expected_runoff_m3": 15678.3,
+      "collectible_volume_m3": 5662.8,
       "catchment_boundary": [ [ { "lon": 81.299, "lat": 21.259 }, "..." ] ],
       "pond_boundary": [ [ { "lon": 81.300, "lat": 21.260 }, "..." ] ]
     }
@@ -113,6 +123,9 @@ just the requested cell size.
 | `pond_sites[].catchment_area_*` | Area of land whose runoff drains to this site |
 | `pond_sites[].pond_area_m2` | Surface area of the pond itself at `spill_elevation_m` |
 | `pond_sites[].estimated_volume_m3` | Estimated storage volume at `spill_elevation_m` |
+| `runoff` | The rainfall and runoff coefficient the estimates below were computed with |
+| `pond_sites[].expected_runoff_m3` | Rainfall runoff expected to reach the site: catchment area × rainfall × runoff coefficient |
+| `pond_sites[].collectible_volume_m3` | Water that can actually be collected: the smaller of the expected runoff and the storage volume |
 | `pond_sites[].catchment_boundary` / `pond_boundary` | Polygon ring(s) in `[lon, lat]`, one outer ring per disconnected patch |
 | `contours` | The input contour lines themselves (elevation + point path), simplified for display — for drawing the pond/catchment boundaries in context on the original map, e.g. on a canvas/SVG in a UI |
 
