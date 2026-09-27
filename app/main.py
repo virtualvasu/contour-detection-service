@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import threading
+from contextlib import contextmanager
 
 from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -19,14 +20,29 @@ from app.selection import parse_area
 # (the sample map is 6.7 MB).
 MAX_UPLOAD_BYTES = int(float(os.environ.get("MAX_UPLOAD_MB", "20")) * 1024 * 1024)
 
-# How many analyses one worker process runs at the same time. Each one is
-# CPU- and memory-heavy, so running many at once just makes all of them slow;
-# requests over the limit wait up to ANALYSIS_QUEUE_TIMEOUT_S for a free slot
-# and then get a 503 telling the client to retry. Scale out by adding worker
-# processes / machines rather than raising this.
-MAX_CONCURRENT_ANALYSES = int(os.environ.get("MAX_CONCURRENT_ANALYSES", "2"))
+# How many heavy requests (analyses and previews, which both parse the whole
+# map) one worker process runs at the same time. Each one is CPU- and
+# memory-heavy: on a 512 MB machine only one fits at a time. Requests over
+# the limit wait up to ANALYSIS_QUEUE_TIMEOUT_S for a free slot and then get
+# a 503 telling the client to retry (the gateway retries on another machine).
+# Scale out by adding machines rather than raising this.
+MAX_CONCURRENT_ANALYSES = int(os.environ.get("MAX_CONCURRENT_ANALYSES", "1"))
 ANALYSIS_QUEUE_TIMEOUT_S = float(os.environ.get("ANALYSIS_QUEUE_TIMEOUT_S", "30"))
 _analysis_slots = threading.BoundedSemaphore(MAX_CONCURRENT_ANALYSES)
+
+
+@contextmanager
+def _analysis_slot():
+    if not _analysis_slots.acquire(timeout=ANALYSIS_QUEUE_TIMEOUT_S):
+        raise HTTPException(
+            status_code=503,
+            detail="Server is busy with other analyses, please try again shortly",
+            headers={"Retry-After": "5"},
+        )
+    try:
+        yield
+    finally:
+        _analysis_slots.release()
 
 app = FastAPI(
     title="Contour Detection Service",
@@ -81,10 +97,11 @@ def preview_contour(
     """Parse a contour map and return its outline and simplified contour
     lines, without analyzing it — for showing the map before an area is picked."""
     name, raw_bytes = _read_upload(contour_map, file)
-    try:
-        return preview_contour_file(raw_bytes, filename=name)
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    with _analysis_slot():
+        try:
+            return preview_contour_file(raw_bytes, filename=name)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 # Plain `def` (not `async def`) on purpose: the analysis is CPU-heavy, and
@@ -130,24 +147,17 @@ def analyze_contour(
 ) -> AnalyzeContourResponse:
     name, raw_bytes = _read_upload(contour_map, file)
 
-    if not _analysis_slots.acquire(timeout=ANALYSIS_QUEUE_TIMEOUT_S):
-        raise HTTPException(
-            status_code=503,
-            detail="Server is busy with other analyses, please try again shortly",
-            headers={"Retry-After": "5"},
-        )
-    try:
-        selected_area = parse_area(area) if area else None
-        return analyze_contour_file(
-            raw_bytes,
-            filename=name,
-            cell_size_m=cell_size_m,
-            area=selected_area,
-            rainfall_mm=rainfall_mm,
-            runoff_coefficient=runoff_coefficient,
-            include_contours=include_contours,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-    finally:
-        _analysis_slots.release()
+    with _analysis_slot():
+        try:
+            selected_area = parse_area(area) if area else None
+            return analyze_contour_file(
+                raw_bytes,
+                filename=name,
+                cell_size_m=cell_size_m,
+                area=selected_area,
+                rainfall_mm=rainfall_mm,
+                runoff_coefficient=runoff_coefficient,
+                include_contours=include_contours,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
