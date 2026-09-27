@@ -10,8 +10,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 
 from app.catchment import DEFAULT_RAINFALL_MM, DEFAULT_RUNOFF_COEFFICIENT
-from app.pipeline import analyze_contour_file
-from app.schemas import AnalyzeContourResponse
+from app.pipeline import analyze_contour_file, preview_contour_file
+from app.schemas import AnalyzeContourResponse, ContourPreviewResponse
 from app.selection import parse_area
 
 # Largest contour map accepted, in MB. Bigger files are rejected up front
@@ -51,6 +51,41 @@ def health() -> dict:
     return {"status": "ok"}
 
 
+def _read_upload(contour_map: UploadFile | None, file: UploadFile | None) -> tuple[str, bytes]:
+    """Validate the uploaded contour map and return (filename, contents)."""
+    upload = contour_map or file
+    if upload is None:
+        raise HTTPException(status_code=422, detail="Missing required file field 'contour_map'")
+
+    name = upload.filename or ""
+    if not name.lower().endswith((".kml", ".kmz")):
+        raise HTTPException(status_code=400, detail="Only .kml or .kmz files are accepted")
+
+    raw_bytes = upload.file.read(MAX_UPLOAD_BYTES + 1)
+    if len(raw_bytes) > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File is too large (limit is {MAX_UPLOAD_BYTES // (1024 * 1024)} MB)",
+        )
+    if not raw_bytes:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty")
+    return name, raw_bytes
+
+
+@app.post("/previewContour", response_model=ContourPreviewResponse)
+def preview_contour(
+    contour_map: UploadFile | None = File(None),
+    file: UploadFile | None = File(None),
+) -> ContourPreviewResponse:
+    """Parse a contour map and return its outline and simplified contour
+    lines, without analyzing it — for showing the map before an area is picked."""
+    name, raw_bytes = _read_upload(contour_map, file)
+    try:
+        return preview_contour_file(raw_bytes, filename=name)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
 # Plain `def` (not `async def`) on purpose: the analysis is CPU-heavy, and
 # FastAPI runs sync handlers in a thread pool, so one long analysis doesn't
 # stall every other request on the same worker.
@@ -86,22 +121,7 @@ def analyze_contour(
         "MultiPolygon in lon/lat. Omit to analyze the whole map.",
     ),
 ) -> AnalyzeContourResponse:
-    upload = contour_map or file
-    if upload is None:
-        raise HTTPException(status_code=422, detail="Missing required file field 'contour_map'")
-
-    name = upload.filename or ""
-    if not name.lower().endswith((".kml", ".kmz")):
-        raise HTTPException(status_code=400, detail="Only .kml or .kmz files are accepted")
-
-    raw_bytes = upload.file.read(MAX_UPLOAD_BYTES + 1)
-    if len(raw_bytes) > MAX_UPLOAD_BYTES:
-        raise HTTPException(
-            status_code=413,
-            detail=f"File is too large (limit is {MAX_UPLOAD_BYTES // (1024 * 1024)} MB)",
-        )
-    if not raw_bytes:
-        raise HTTPException(status_code=400, detail="Uploaded file is empty")
+    name, raw_bytes = _read_upload(contour_map, file)
 
     if not _analysis_slots.acquire(timeout=ANALYSIS_QUEUE_TIMEOUT_S):
         raise HTTPException(
