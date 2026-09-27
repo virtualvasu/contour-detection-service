@@ -41,6 +41,11 @@ their catchment area and estimated storage volume.
   Contour lines are clipped to it, and pond sites and catchments are only
   looked for inside it. Omit it to analyze the whole map. Selecting a
   smaller area also makes the analysis faster.
+- Form field `exclude` (optional) — land to leave out, in the same GeoJSON
+  forms as `area`; typically the rivers, lakes and ponds returned by
+  `GET /waterBodies`. It is cut out of `area` (or the whole map), so no
+  pond site, pond or catchment is placed in it. Without it, a river bed —
+  the lowest ground around — is readily picked as a pond site.
 
 Example — default resolution:
 
@@ -153,6 +158,33 @@ the analysis grid's resolution.
 | `422` | No file was sent under `contour_map` (or `file`), the file could not be parsed as valid KML/KMZ, `area` is not a valid GeoJSON polygon or contains no contour lines, the area has more than `MAX_CONTOUR_VERTICES` contour points (select a smaller area), or no usable contour lines / no plausible pond depressions were found |
 | `503` | The worker is already busy with its maximum number of analyses/previews and no slot freed up in time; retry after the `Retry-After` header's number of seconds |
 
+## GET /waterBodies
+
+Rivers, canals, lakes, reservoirs and existing ponds within some bounds,
+looked up on OpenStreetMap (through the public Overpass API), as one
+geometry to pass as `exclude` to `/analyzeContour`. A 10 m margin is kept
+around each; rivers and canals mapped only as a centre line are widened
+to 15 m and 5 m each side. Small streams and drains are not included,
+since farm ponds and check dams are often built on them.
+
+**Request** — query parameters `min_lon`, `min_lat`, `max_lon`, `max_lat`
+(at most 0.5° per side).
+
+**Response** — `200 OK`:
+
+```jsonc
+{
+  "status": "found",          // or "none" (no mapped water) or "unavailable"
+  "geometry": { "type": "MultiPolygon", "coordinates": [ "..." ] }   // null unless "found"
+}
+```
+
+`"unavailable"` means no Overpass server answered in time; the analysis
+still works without `exclude`. The public servers take ~2–20 s and are
+sometimes overloaded, so each configured server is tried in turn, answers
+are cached per area, and after all servers fail, lookups pause for 10 s.
+The API machines need internet access for this endpoint.
+
 ## POST /previewContour
 
 Parses an uploaded contour map just far enough to draw it — no terrain
@@ -197,6 +229,8 @@ environment variables on the API process:
 | `MAX_GRID_SIDE` | `1000` | Largest analysis grid, in cells per side |
 | `MAX_CONCURRENT_ANALYSES` | `1` | Analyses and previews one worker process runs at once |
 | `ANALYSIS_QUEUE_TIMEOUT_S` | `30` | How long a request waits for a free slot before getting `503` |
+| `OVERPASS_URLS` | overpass-api.de, then maps.mail.ru | Comma-separated Overpass servers `/waterBodies` tries in order |
+| `WATER_LOOKUP_TIMEOUT_S` | `20` | How long `/waterBodies` waits for each Overpass server |
 
 KMZ archives whose KML would unzip to more than 20 MB are rejected with
 `422`. Responses are gzipped when the client accepts it. On machines with
