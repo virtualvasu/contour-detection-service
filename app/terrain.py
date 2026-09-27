@@ -49,6 +49,13 @@ _TARGET_GRID_SIDE = 300
 _MIN_GRID_SIDE = 40
 _MAX_GRID_SIDE = int(os.environ.get("MAX_GRID_SIDE", "1000"))
 
+# Most of an analysis's memory goes on triangulating the contour vertices
+# (~0.7 KB per vertex, on top of ~100 MB for the worker itself), so the
+# number of vertices in the analyzed area is capped. 200k keeps a worker
+# under ~350 MB. The check runs after clipping to the selected area, so a
+# map too detailed to analyze whole can still be analyzed a part at a time.
+MAX_CONTOUR_VERTICES = int(os.environ.get("MAX_CONTOUR_VERTICES", "200000"))
+
 
 def _utm_crs_for_lonlat(lon: float, lat: float) -> CRS:
     zone = int((lon + 180) // 6) + 1
@@ -125,6 +132,14 @@ def build_dem(
     """
     if cell_size_m is not None and cell_size_m <= 0:
         raise ValueError("cell_size_m must be greater than 0")
+
+    vertex_count = sum(len(c.points) for c in contours)
+    if vertex_count > MAX_CONTOUR_VERTICES:
+        raise ValueError(
+            f"The area to analyze has {vertex_count:,} contour points, more than "
+            f"this server can process at once ({MAX_CONTOUR_VERTICES:,}). "
+            "Select a smaller area."
+        )
 
     all_lons, all_lats, all_elevs = _vertex_arrays(contours)
     crs, to_utm, to_lonlat = _projection_for(all_lons, all_lats)
