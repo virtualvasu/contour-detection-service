@@ -15,6 +15,7 @@ lines are passed in.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 
 import numpy as np
@@ -41,9 +42,12 @@ _TARGET_GRID_SIDE = 300
 
 # Hard floor/ceiling on grid size, in cells per side. These apply even when
 # the caller asks for a specific cell size, so a request for very fine
-# detail can't make the analysis run for an unbounded amount of time.
+# detail can't make the analysis run for an unbounded amount of time or
+# memory. On the sample map a worker peaks at ~290 MB with a 1000-cell grid
+# and ~385 MB at 1500, so the default keeps one analysis comfortably inside
+# a 512 MB machine; raise MAX_GRID_SIDE on machines with more memory.
 _MIN_GRID_SIDE = 40
-_MAX_GRID_SIDE = 1500
+_MAX_GRID_SIDE = int(os.environ.get("MAX_GRID_SIDE", "1000"))
 
 
 def _utm_crs_for_lonlat(lon: float, lat: float) -> CRS:
