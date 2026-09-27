@@ -136,6 +136,36 @@ def test_lookup_falls_back_to_the_next_server(monkeypatch):
 
     monkeypatch.setattr(water, "OVERPASS_URLS", ["https://first.example", "https://second.example"])
     monkeypatch.setattr(water._client, "post", fake_post)
+    monkeypatch.setattr(water.time, "sleep", lambda s: None)
 
     assert water._fetch_elements(BOUNDS) == [{"type": "way", "id": 1}]
     assert tried == ["https://first.example", "https://second.example"]
+
+
+def test_lookup_retries_a_flaky_server(monkeypatch):
+    import httpx
+
+    responses = iter([504, 504, 200])
+
+    def flaky_post(url, **kwargs):
+        request = httpx.Request("POST", url)
+        status = next(responses)
+        return httpx.Response(status, json={"elements": []}, request=request)
+
+    monkeypatch.setattr(water, "OVERPASS_URLS", ["https://only.example"])
+    monkeypatch.setattr(water._client, "post", flaky_post)
+    monkeypatch.setattr(water.time, "sleep", lambda s: None)
+
+    assert water._fetch_elements(BOUNDS) == []
+
+
+def test_nearby_bounds_share_a_cache_entry(monkeypatch):
+    seen = []
+    monkeypatch.setattr(water, "_fetch_elements", lambda bounds: seen.append(bounds) or [])
+    monkeypatch.setattr(water, "_unavailable_until", 0.0)
+    water._cached_water.cache_clear()
+
+    find_water((81.2814, 21.2398, 81.3127, 21.2636))
+    find_water((81.2814044952393, 21.2398224433387, 81.3126468658447, 21.2635806472203))
+
+    assert len(seen) == 1
