@@ -119,3 +119,17 @@ def test_api_returns_503_when_all_analysis_slots_are_busy(monkeypatch):
         )
     assert response.status_code == 503
     assert response.headers["retry-after"] == "5"
+
+
+def test_api_can_leave_out_contours():
+    client = TestClient(app)
+    with open(SAMPLE_PATH, "rb") as f:
+        response = client.post(
+            "/analyzeContour",
+            params={"include_contours": "false"},
+            files={"contour_map": ("contours_1m.kml", f, "application/vnd.google-earth.kml+xml")},
+        )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["contours"] == []
+    assert len(body["pond_sites"]) > 0
