@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
-# Build the frontend and start nginx in front of the API machines.
+# Start nginx in front of the API machines, serving the built frontend.
 #
 #   deploy/start_gateway.sh 10.1.75.53:8000 10.1.75.54:8000 10.1.75.55:8000 10.1.75.56:8000
+#
+# Build the frontend first on a machine with more memory (npm needs far
+# more than the lab machines' 512 MB) and copy frontend/dist over:
+#
+#   cd frontend && npm ci && npm run build
 #
 # LISTEN_PORT (default 8080) is where the app is served. Stop the gateway
 # with: nginx -p "$PWD/deploy" -c nginx.generated.conf -s stop
@@ -20,7 +25,10 @@ for server in "$@"; do
     servers+="        server ${server} max_fails=3 fail_timeout=10s;"$'\n'
 done
 
-(cd "$DEPLOY_DIR/../frontend" && npm ci && npm run build)
+if [ ! -f "$DEPLOY_DIR/../frontend/dist/index.html" ]; then
+    echo "frontend/dist is missing: build it with 'npm ci && npm run build' in frontend/ and copy it here" >&2
+    exit 1
+fi
 
 mkdir -p "$DEPLOY_DIR/logs"
 awk -v servers="${servers%$'\n'}" -v port="$LISTEN_PORT" '
