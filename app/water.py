@@ -20,8 +20,9 @@ from functools import lru_cache
 
 import httpx
 import numpy as np
+import shapely
 from pyproj import CRS, Transformer
-from shapely.geometry import LineString, Polygon, box
+from shapely.geometry import LineString, MultiPolygon, Polygon, box, mapping
 from shapely.geometry.base import BaseGeometry
 from shapely.ops import polygonize, transform, unary_union
 
@@ -32,7 +33,11 @@ USER_AGENT = "contour-detection-service/0.1 (pond site planning)"
 # after LOOKUP_TIMEOUT_S, and after a failure skip lookups entirely for
 # RETRY_AFTER_FAILURE_S instead of making every request wait again.
 LOOKUP_TIMEOUT_S = float(os.environ.get("WATER_LOOKUP_TIMEOUT_S", "10"))
-RETRY_AFTER_FAILURE_S = 60
+RETRY_AFTER_FAILURE_S = 20
+
+# Largest area, in degrees per side, that water is looked up for; keeps
+# queries to the shared Overpass servers reasonable.
+MAX_LOOKUP_SPAN_DEG = 0.5
 
 # Distance kept from the water's edge, so a pond isn't suggested right on
 # the bank.
@@ -125,6 +130,13 @@ def water_geometry(elements: list[dict], bounds: tuple[float, float, float, floa
         return None
     water = transform(to_deg, unary_union(shapes)).intersection(box(*bounds))
     return None if water.is_empty else water
+
+
+def water_geojson(geometry: BaseGeometry) -> dict:
+    """The polygons of `geometry` as a GeoJSON MultiPolygon, to ~0.1 m."""
+    parts = [g for g in getattr(geometry, "geoms", [geometry]) if isinstance(g, (Polygon, MultiPolygon))]
+    polygons = [p for part in parts for p in getattr(part, "geoms", [part])]
+    return mapping(shapely.set_precision(MultiPolygon(polygons), 1e-6))
 
 
 @lru_cache(maxsize=32)

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any, Literal
+
 from pydantic import BaseModel
 
 
@@ -62,6 +64,13 @@ class ContourPreviewResponse(BaseModel):
     contour_interval_m: float
     contour_line_count: int
     contours: list[ContourLineOut]
+
+
+class WaterBodiesResponse(BaseModel):
+    # "found": `geometry` holds the water; "none": there is no mapped water
+    # in the area; "unavailable": OpenStreetMap couldn't be reached.
+    status: Literal["found", "none", "unavailable"]
+    geometry: dict[str, Any] | None
 
 
 class AnalyzeContourResponse(BaseModel):

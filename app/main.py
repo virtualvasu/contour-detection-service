@@ -12,8 +12,9 @@ from fastapi.middleware.gzip import GZipMiddleware
 
 from app.catchment import DEFAULT_RAINFALL_MM, DEFAULT_RUNOFF_COEFFICIENT
 from app.pipeline import analyze_contour_file, preview_contour_file
-from app.schemas import AnalyzeContourResponse, ContourPreviewResponse
+from app.schemas import AnalyzeContourResponse, ContourPreviewResponse, WaterBodiesResponse
 from app.selection import parse_area
+from app.water import MAX_LOOKUP_SPAN_DEG, WaterLookupError, find_water, water_geojson
 
 # Largest contour map accepted, in MB. Parsing a KML takes roughly 8x its
 # size in memory, so 20 MB keeps a worker well inside a 512 MB machine
@@ -87,6 +88,30 @@ def _read_upload(contour_map: UploadFile | None, file: UploadFile | None) -> tup
     if not raw_bytes:
         raise HTTPException(status_code=400, detail="Uploaded file is empty")
     return name, raw_bytes
+
+
+@app.get("/waterBodies", response_model=WaterBodiesResponse)
+def water_bodies(
+    min_lon: float = Query(..., ge=-180, le=180),
+    min_lat: float = Query(..., ge=-90, le=90),
+    max_lon: float = Query(..., ge=-180, le=180),
+    max_lat: float = Query(..., ge=-90, le=90),
+) -> WaterBodiesResponse:
+    """Rivers, canals, lakes, reservoirs and existing ponds within the given
+    bounds, from OpenStreetMap, as one geometry to pass as `exclude` to
+    /analyzeContour. Small streams are not included."""
+    if min_lon >= max_lon or min_lat >= max_lat:
+        raise HTTPException(status_code=422, detail="min_lon/min_lat must be below max_lon/max_lat")
+    if max_lon - min_lon > MAX_LOOKUP_SPAN_DEG or max_lat - min_lat > MAX_LOOKUP_SPAN_DEG:
+        raise HTTPException(status_code=422, detail="Area is too large to look up water for")
+
+    try:
+        geometry = find_water((min_lon, min_lat, max_lon, max_lat))
+    except WaterLookupError:
+        return WaterBodiesResponse(status="unavailable", geometry=None)
+    if geometry is None:
+        return WaterBodiesResponse(status="none", geometry=None)
+    return WaterBodiesResponse(status="found", geometry=water_geojson(geometry))
 
 
 @app.post("/previewContour", response_model=ContourPreviewResponse)
