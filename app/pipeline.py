@@ -94,6 +94,7 @@ def analyze_contour_file(
     area: BaseGeometry | None = None,
     rainfall_mm: float = DEFAULT_RAINFALL_MM,
     runoff_coefficient: float = DEFAULT_RUNOFF_COEFFICIENT,
+    include_contours: bool = True,
 ) -> AnalyzeContourResponse:
     contours = parse_contours(raw_bytes)
     if area is not None:
@@ -147,10 +148,12 @@ def analyze_contour_file(
         projected_crs=dem.crs.to_string(),
     )
 
-    display_contours = [
-        ContourLineOut(elevation_m=elevation, points=_ring_to_lonlat_models(points))
-        for elevation, points in simplify_contours_for_display(contours, dem)
-    ]
+    display_contours = []
+    if include_contours:
+        display_contours = [
+            ContourLineOut(elevation_m=elevation, points=_ring_to_lonlat_models(points))
+            for elevation, points in simplify_contours_for_display(contours, dem)
+        ]
 
     return AnalyzeContourResponse(
         source_file=filename,

@@ -115,6 +115,12 @@ def analyze_contour(
         description="Share of rainfall that runs off the land instead of "
         "soaking in (0-1).",
     ),
+    include_contours: bool = Query(
+        True,
+        description="Also return the (simplified) input contour lines. "
+        "Clients that already have them, e.g. from /previewContour, can "
+        "pass false for a smaller, faster response.",
+    ),
     area: str | None = Form(
         None,
         description="Land area to analyze, as a GeoJSON Polygon or "
@@ -138,6 +144,7 @@ def analyze_contour(
             area=selected_area,
             rainfall_mm=rainfall_mm,
             runoff_coefficient=runoff_coefficient,
+            include_contours=include_contours,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
