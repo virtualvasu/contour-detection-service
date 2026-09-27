@@ -53,7 +53,10 @@ Using the app:
    lines appear on the map (every fifth one drawn heavier).
 2. **Select the land** — draw a rectangle (click two opposite corners),
    draw a free shape (click each corner, then the first one again), or
-   take the whole map. Esc stops drawing.
+   take the whole map. Esc stops drawing. Rivers, lakes and ponds on the
+   map are looked up on OpenStreetMap and left out (greyed out on the
+   map), since a river bed is the lowest ground around but no place for a
+   pond; untick "Leave out rivers, lakes and ponds" to include them.
 3. **Rainfall and land cover** — the annual rainfall and the kind of
    land, which sets how much of the rain runs off to a pond; optionally a
    finer analysis grid.
@@ -75,7 +78,8 @@ python -m pytest tests/ -v
 
 0. **Select** — if an area was selected on the map, contour lines are
    clipped to it and everything below only considers land inside it
-   (`app/selection.py`).
+   (`app/selection.py`). Rivers, lakes and ponds from OpenStreetMap
+   (`app/water.py`) are cut out of it the same way.
 1. **Parse** — read every elevation-labelled contour line out of the
    uploaded KML/KMZ (`app/kml_parser.py`).
 2. **Build terrain model** — reproject the contour points to metres
@@ -113,6 +117,7 @@ maps in the same KML/KMZ style.
 app/
   kml_parser.py   # KML/KMZ -> contour lines
   selection.py    # selected area (GeoJSON) -> clipped contour lines
+  water.py        # rivers/lakes/ponds from OpenStreetMap, to leave out
   terrain.py      # contour lines -> DEM + flow model
   catchment.py    # flow model -> pond sites, catchments, volumes, runoff
   pipeline.py     # wires the above together (analysis and map preview)
@@ -210,6 +215,9 @@ selected area instead of the whole map.
 - Maps with more than 200k contour points can't be analyzed whole on a
   512 MB machine; select part of the map instead (or raise
   `MAX_CONTOUR_VERTICES` on a bigger machine).
+- Leaving out water relies on OpenStreetMap: unmapped rivers or ponds
+  aren't left out, and the lookup needs internet access from the API
+  machines (if it fails, the analysis runs without it and says so).
 - Pond depth is capped at a fixed 5 m assumption; this could become a
   request parameter.
 - Rainfall and runoff coefficient are single values for the whole area;
