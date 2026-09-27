@@ -32,8 +32,11 @@ def health() -> dict:
     return {"status": "ok"}
 
 
+# Plain `def` (not `async def`) on purpose: the analysis is CPU-heavy, and
+# FastAPI runs sync handlers in a thread pool, so one long analysis doesn't
+# stall every other request on the same worker.
 @app.post("/analyzeContour", response_model=AnalyzeContourResponse)
-async def analyze_contour(
+def analyze_contour(
     contour_map: UploadFile | None = File(None),
     file: UploadFile | None = File(None),
     cell_size_m: float | None = Query(
@@ -72,7 +75,7 @@ async def analyze_contour(
     if not name.lower().endswith((".kml", ".kmz")):
         raise HTTPException(status_code=400, detail="Only .kml or .kmz files are accepted")
 
-    raw_bytes = await upload.read()
+    raw_bytes = upload.file.read()
     if not raw_bytes:
         raise HTTPException(status_code=400, detail="Uploaded file is empty")
 
