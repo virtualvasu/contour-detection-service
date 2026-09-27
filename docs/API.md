@@ -32,6 +32,10 @@ their catchment area and estimated storage volume.
   typical annual rainfall for central India and a common coefficient for
   rural, partly cultivated land; pass the values for the area being
   planned for better estimates.
+- Query parameter `include_contours` (optional, default `true`) — pass
+  `false` to leave `contours` empty in the response, e.g. when the client
+  already has them from `/previewContour`. On the sample map this shrinks
+  the gzipped response from ~90 KB to ~1.5 KB.
 - Form field `area` (optional) — the land area to analyze, as a GeoJSON
   `Polygon` or `MultiPolygon` (or a `Feature` wrapping one) in lon/lat.
   Contour lines are clipped to it, and pond sites and catchments are only
@@ -145,7 +149,52 @@ the analysis grid's resolution.
 | Status | Cause |
 |---|---|
 | `400` | File extension is not `.kml`/`.kmz`, or the uploaded file is empty |
+| `413` | File is larger than `MAX_UPLOAD_MB` (default 50 MB) |
 | `422` | No file was sent under `contour_map` (or `file`), the file could not be parsed as valid KML/KMZ, `area` is not a valid GeoJSON polygon or contains no contour lines, or no usable contour lines / no plausible pond depressions were found |
+| `503` | The worker is already running its maximum number of analyses and no slot freed up in time; retry after the `Retry-After` header's number of seconds |
+
+## POST /previewContour
+
+Parses an uploaded contour map just far enough to draw it — no terrain
+model or analysis — so a client can show the map and let the user pick an
+area before calling `/analyzeContour`. Takes ~0.4 s on the sample map.
+
+**Request** — same file field as `/analyzeContour` (`contour_map`, or
+`file`), no other parameters.
+
+**Response** — `200 OK`:
+
+```jsonc
+{
+  "source_file": "contours_1m.kml",
+  "bounds": { "min_lon": 81.2814, "min_lat": 21.2398, "max_lon": 81.3126, "max_lat": 21.2636 },
+  "min_elevation_m": 267.0,
+  "max_elevation_m": 298.0,
+  "contour_interval_m": 1.0,
+  "contour_line_count": 1355,
+  "contours": [
+    { "elevation_m": 277.0, "points": [ { "lon": 81.286, "lat": 21.263 }, "..." ] }
+  ]
+}
+```
+
+Contours are simplified the same way as in `/analyzeContour` at its
+default resolution. Error responses are the same as for `/analyzeContour`
+(`400`, `413`, `422`).
+
+## Limits and configuration
+
+Set through environment variables on the API process:
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `MAX_UPLOAD_MB` | `50` | Largest accepted upload |
+| `MAX_CONCURRENT_ANALYSES` | `2` | Analyses one worker process runs at once |
+| `ANALYSIS_QUEUE_TIMEOUT_S` | `30` | How long a request waits for a free slot before getting `503` |
+
+KMZ archives whose KML would unzip to more than 300 MB are rejected with
+`422`, and the analysis grid is always kept between 40 and 1500 cells per
+side. Responses are gzipped when the client accepts it.
 
 ## GET /health
 
