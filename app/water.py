@@ -13,6 +13,7 @@ farm ponds and check dams get built.
 
 from __future__ import annotations
 
+import logging
 import os
 import threading
 import time
@@ -26,14 +27,23 @@ from shapely.geometry import LineString, MultiPolygon, Polygon, box, mapping
 from shapely.geometry.base import BaseGeometry
 from shapely.ops import polygonize, transform, unary_union
 
-OVERPASS_URL = os.environ.get("OVERPASS_URL", "https://overpass-api.de/api/interpreter")
+logger = logging.getLogger(__name__)
+
+# Public Overpass servers, tried in order: the main one is sometimes
+# overloaded (504), so a failed lookup is retried on the next.
+OVERPASS_URLS = os.environ.get(
+    "OVERPASS_URLS",
+    "https://overpass-api.de/api/interpreter,https://maps.mail.ru/osm/tools/overpass/api/interpreter",
+).split(",")
 USER_AGENT = "contour-detection-service/0.1 (pond site planning)"
 
-# Keep the analysis responsive when OpenStreetMap is slow or down: give up
-# after LOOKUP_TIMEOUT_S, and after a failure skip lookups entirely for
-# RETRY_AFTER_FAILURE_S instead of making every request wait again.
-LOOKUP_TIMEOUT_S = float(os.environ.get("WATER_LOOKUP_TIMEOUT_S", "10"))
-RETRY_AFTER_FAILURE_S = 20
+# The public Overpass servers answer this query in anything from ~2 to ~20
+# seconds, so allow LOOKUP_TIMEOUT_S per server before moving on. After
+# every server has failed, lookups are skipped for RETRY_AFTER_FAILURE_S
+# instead of queueing more queries on struggling servers (they also
+# rate-limit each IP).
+LOOKUP_TIMEOUT_S = float(os.environ.get("WATER_LOOKUP_TIMEOUT_S", "20"))
+RETRY_AFTER_FAILURE_S = 10
 
 # Largest area, in degrees per side, that water is looked up for; keeps
 # queries to the shared Overpass servers reasonable.
@@ -79,17 +89,20 @@ def _query(bounds: tuple[float, float, float, float]) -> str:
 
 
 def _fetch_elements(bounds: tuple[float, float, float, float]) -> list[dict]:
-    try:
-        response = httpx.post(
-            OVERPASS_URL,
-            data={"data": _query(bounds)},
-            headers={"User-Agent": USER_AGENT},
-            timeout=LOOKUP_TIMEOUT_S,
-        )
-        response.raise_for_status()
-        return response.json()["elements"]
-    except (httpx.HTTPError, ValueError, KeyError) as exc:
-        raise WaterLookupError(str(exc)) from exc
+    query = _query(bounds)
+    for url in OVERPASS_URLS:
+        try:
+            response = httpx.post(
+                url,
+                data={"data": query},
+                headers={"User-Agent": USER_AGENT},
+                timeout=LOOKUP_TIMEOUT_S,
+            )
+            response.raise_for_status()
+            return response.json()["elements"]
+        except (httpx.HTTPError, ValueError, KeyError) as exc:
+            logger.warning("Water lookup on %s failed: %r", url, exc)
+    raise WaterLookupError("No Overpass server answered")
 
 
 def _lonlat(points: list[dict]) -> list[tuple[float, float]]:
