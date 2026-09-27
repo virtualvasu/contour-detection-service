@@ -30,6 +30,15 @@ if [ ! -f "$DEPLOY_DIR/../frontend/dist/index.html" ]; then
     exit 1
 fi
 
+# nginx treats SIGHUP (e.g. its tmux session being closed) as "reload",
+# not "exit", so a gateway from an earlier run can still hold the port.
+# Shut it down cleanly before starting again.
+if [ -f "$DEPLOY_DIR/nginx.pid" ] && kill -0 "$(cat "$DEPLOY_DIR/nginx.pid")" 2>/dev/null; then
+    echo "Stopping the gateway already running (pid $(cat "$DEPLOY_DIR/nginx.pid"))"
+    kill -QUIT "$(cat "$DEPLOY_DIR/nginx.pid")"
+    while kill -0 "$(cat "$DEPLOY_DIR/nginx.pid" 2>/dev/null)" 2>/dev/null; do sleep 0.2; done
+fi
+
 mkdir -p "$DEPLOY_DIR/logs"
 awk -v servers="${servers%$'\n'}" -v port="$LISTEN_PORT" '
     /__API_SERVERS__/ { print servers; next }
