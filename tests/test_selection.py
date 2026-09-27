@@ -79,3 +79,12 @@ def test_api_rejects_area_outside_map(sample_bytes):
     )
     assert response.status_code == 422
     assert "contour" in response.json()["detail"]
+
+
+def test_too_many_vertices_asks_for_a_smaller_area(sample_bytes, monkeypatch):
+    monkeypatch.setattr("app.terrain.MAX_CONTOUR_VERTICES", 100_000)
+    with pytest.raises(ValueError, match="Select a smaller area"):
+        analyze_contour_file(sample_bytes, "contours_1m.kml")
+    # the western half has fewer vertices than the whole map, so it fits
+    area = parse_area(json.dumps(WEST_HALF))
+    assert analyze_contour_file(sample_bytes, "contours_1m.kml", area=area).pond_sites
