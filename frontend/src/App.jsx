@@ -34,7 +34,7 @@ const DRAW_HINTS = {
 function WaterStatus({ water, onRetry }) {
   if (!water) return null
   const messages = {
-    loading: 'Looking up rivers, lakes and ponds on OpenStreetMap…',
+    loading: 'Looking up rivers, lakes and ponds on OpenStreetMap… This can take up to a minute; untick the box to skip it.',
     found: 'Rivers, lakes and ponds from OpenStreetMap, greyed out on the map, will be left out.',
     none: 'No rivers, lakes or ponds are mapped on this map.',
   }
