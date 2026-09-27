@@ -5,7 +5,7 @@ import pathlib
 
 import pytest
 from fastapi.testclient import TestClient
-from shapely.geometry import Point, box
+from shapely.geometry import Point, Polygon, box
 
 from app.main import app
 from app.pipeline import analyze_contour_file
@@ -88,3 +88,30 @@ def test_too_many_vertices_asks_for_a_smaller_area(sample_bytes, monkeypatch):
     # the western half has fewer vertices than the whole map, so it fits
     area = parse_area(json.dumps(WEST_HALF))
     assert analyze_contour_file(sample_bytes, "contours_1m.kml", area=area).pond_sites
+
+
+def test_excluded_land_gets_no_sites(sample_bytes):
+    area = parse_area(json.dumps(WEST_HALF))
+    before = analyze_contour_file(sample_bytes, "contours_1m.kml", area=area)
+    # leave out a patch around the best site, as if it were a lake
+    best = before.pond_sites[0].location
+    lake = Point(best.lon, best.lat).buffer(0.002)
+
+    after = analyze_contour_file(sample_bytes, "contours_1m.kml", area=area, exclude=lake)
+
+    assert after.pond_sites
+    for site in after.pond_sites:
+        assert not lake.contains(Point(site.location.lon, site.location.lat))
+        for ring in site.pond_boundary:
+            assert not lake.buffer(-0.0002).intersects(Polygon([(p.lon, p.lat) for p in ring]))
+
+
+def test_api_rejects_area_that_is_all_excluded(sample_bytes):
+    client = TestClient(app)
+    response = client.post(
+        "/analyzeContour",
+        files={"contour_map": ("contours_1m.kml", sample_bytes, "application/vnd.google-earth.kml+xml")},
+        data={"area": json.dumps(WEST_HALF), "exclude": json.dumps(WEST_HALF)},
+    )
+    assert response.status_code == 422
+    assert "Select some land" in response.json()["detail"]
