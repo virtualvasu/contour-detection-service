@@ -20,13 +20,14 @@ import {
 } from 'react-leaflet'
 import { formatArea, formatVolume } from './format'
 import { toLatLngs, toLeafletBounds } from './geo'
-import { CONTOUR, SELECTION, WATER, siteColor } from './palette'
+import { CONTOUR, EXCLUDED, SELECTION, WATER, siteColor } from './palette'
 
 // Before a map is loaded, show central India, where the tool is aimed.
 const START_CENTER = [22.5, 79]
 const START_ZOOM = 5
 
 const SELECTION_STYLE = { color: SELECTION, weight: 2, dashArray: '8 6', fillColor: SELECTION, fillOpacity: 0.05 }
+const EXCLUDED_STYLE = { color: EXCLUDED, weight: 1, fillColor: EXCLUDED, fillOpacity: 0.45 }
 
 // Every fifth contour is an "index contour", drawn heavier, as on printed maps.
 const INDEX_EVERY = 5
@@ -194,7 +195,7 @@ function SiteLayers({ sites, activeRank, onSiteClick }) {
 }
 
 export default function MapView({
-  preview, selection, drawMode, onSelect, onDrawEnd, sites, activeRank, onSiteClick, flyTarget,
+  preview, selection, excludedWater, drawMode, onSelect, onDrawEnd, sites, activeRank, onSiteClick, flyTarget,
 }) {
   return (
     <MapContainer center={START_CENTER} zoom={START_ZOOM} preferCanvas className="map">
@@ -231,6 +232,11 @@ export default function MapView({
         )}
       </LayersControl>
 
+      {excludedWater && (
+        <GeoJSON key={JSON.stringify(excludedWater)} data={excludedWater} style={EXCLUDED_STYLE}>
+          <Tooltip sticky>River, lake or pond: left out of the analysis</Tooltip>
+        </GeoJSON>
+      )}
       {selection && (
         <GeoJSON key={JSON.stringify(selection)} data={selection} style={SELECTION_STYLE} interactive={false} />
       )}

@@ -3,6 +3,9 @@
 export const CONTOUR = '#a0522d'
 export const WATER = '#1769aa'
 export const SELECTION = '#c62828'
+// Water left out of the analysis is greyed out, like everything else that
+// isn't considered, so it can't be mistaken for a suggested (blue) pond.
+export const EXCLUDED = '#4a5a66'
 
 // One colour per ranked site, used for its catchment outline, map pin and
 // entry in the results list. Kept clear of the contour, water and selection
