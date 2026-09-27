@@ -1,16 +1,26 @@
-# React + Vite
+# Pond Site Finder — frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+React + Leaflet app for the contour analysis API: load a contour map,
+select the land on the map, and see the suggested pond sites, their
+catchments and the water they can collect drawn over it.
 
-Currently, two official plugins are available:
+```bash
+npm install
+npm run dev      # http://127.0.0.1:5173, forwards /api to http://127.0.0.1:8000
+npm run build    # production bundle in dist/, served by the gateway
+npm run lint
+```
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+`API_PROXY_TARGET` changes where the dev server forwards `/api`;
+`VITE_API_BASE_URL` changes the API path baked into a build (default
+`/api`, which the nginx gateway in `../deploy` serves).
 
-## React Compiler
+## Files
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and Oxlint's TypeScript related rules in your project.
+- `src/App.jsx` — the step-by-step panel and app state
+- `src/MapView.jsx` — the map: base layers, contours, area drawing and
+  result overlays
+- `src/Results.jsx` — ranked pond site list, legend and terrain details
+- `src/api.js` — calls to `/previewContour` and `/analyzeContour`
+- `src/geo.js`, `src/format.js`, `src/palette.js` — geometry, number
+  formatting and map colours
