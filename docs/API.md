@@ -22,9 +22,9 @@ their catchment area and estimated storage volume.
   boundaries but take longer to compute (see table below). If omitted, a
   resolution is picked automatically from the map's size (targeting
   ~300 cells along the longer side). Whatever value is requested, the
-  grid is still capped between 40 and 1500 cells per side as a safety
-  limit, so an extreme request degrades to the closest allowed
-  resolution rather than hanging.
+  grid is still capped between 40 and `MAX_GRID_SIDE` (default 1000)
+  cells per side as a safety limit, so an extreme request degrades to the
+  closest allowed resolution rather than running out of time or memory.
 - Query parameters `rainfall_mm` (optional, default `1200`, `0 < x ≤ 10000`)
   and `runoff_coefficient` (optional, default `0.3`, `0 < x ≤ 1`) — the
   rainfall and the share of it that runs off the land, used to estimate
@@ -64,17 +64,17 @@ curl -X POST "http://localhost:8000/analyzeContour?cell_size_m=3" \
   -F "contour_map=@samples/contours_1m.kml"
 ```
 
-Rough timing on the sample map (6.7MB KML, ~1355 contour lines):
+Rough timing and peak worker memory on the sample map (6.7 MB KML, 1355
+contour lines, 159k vertices), whole map, one worker:
 
-| `cell_size_m` | Grid size | Time |
-|---|---|---|
-| ~10.8 (default) | 243 × 300 | ~2.2s |
-| 5 | 525 × 648 | ~2.5s |
-| 3 | 875 × 1081 | ~4.8s |
-| ~1.6 (near the 1500-side cap) | 1620 × 2000 | ~6.7s |
+| `cell_size_m` | Grid size | Time | Peak memory |
+|---|---|---|---|
+| ~10.8 (default) | 243 × 300 | ~2.5 s | ~280 MB |
+| 5 | 525 × 648 | ~3.2 s | ~285 MB |
+| 3.2 or less (hits the 1000-cell cap) | 810 × 1000 | ~6 s | ~295 MB |
 
 Actual times depend on the size and density of the uploaded map, not
-just the requested cell size.
+just the requested cell size. Selecting a smaller area is faster.
 
 **Response** — `200 OK`, JSON body:
 
@@ -149,9 +149,9 @@ the analysis grid's resolution.
 | Status | Cause |
 |---|---|
 | `400` | File extension is not `.kml`/`.kmz`, or the uploaded file is empty |
-| `413` | File is larger than `MAX_UPLOAD_MB` (default 50 MB) |
-| `422` | No file was sent under `contour_map` (or `file`), the file could not be parsed as valid KML/KMZ, `area` is not a valid GeoJSON polygon or contains no contour lines, or no usable contour lines / no plausible pond depressions were found |
-| `503` | The worker is already running its maximum number of analyses and no slot freed up in time; retry after the `Retry-After` header's number of seconds |
+| `413` | File is larger than `MAX_UPLOAD_MB` (default 20 MB) |
+| `422` | No file was sent under `contour_map` (or `file`), the file could not be parsed as valid KML/KMZ, `area` is not a valid GeoJSON polygon or contains no contour lines, the area has more than `MAX_CONTOUR_VERTICES` contour points (select a smaller area), or no usable contour lines / no plausible pond depressions were found |
+| `503` | The worker is already busy with its maximum number of analyses/previews and no slot freed up in time; retry after the `Retry-After` header's number of seconds |
 
 ## POST /previewContour
 
@@ -180,21 +180,28 @@ area before calling `/analyzeContour`. Takes ~0.4 s on the sample map.
 
 Contours are simplified the same way as in `/analyzeContour` at its
 default resolution. Error responses are the same as for `/analyzeContour`
-(`400`, `413`, `422`).
+(`400`, `413`, `422`, `503`). Previews share the worker's slot limit with
+analyses, since both parse the whole map.
 
 ## Limits and configuration
 
-Set through environment variables on the API process:
+The defaults are sized for machines with 512 MB of RAM: a worker uses
+~100 MB idle and stays under ~330 MB while working (checked under a 380 MB
+memory cap with the heaviest requests the limits allow). Set through
+environment variables on the API process:
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `MAX_UPLOAD_MB` | `50` | Largest accepted upload |
-| `MAX_CONCURRENT_ANALYSES` | `2` | Analyses one worker process runs at once |
+| `MAX_UPLOAD_MB` | `20` | Largest accepted upload; parsing takes roughly 8× the KML's size in memory |
+| `MAX_CONTOUR_VERTICES` | `200000` | Most contour points analyzed at once, counted after clipping to the selected area (the sample map has 159k); triangulating them is most of an analysis's memory |
+| `MAX_GRID_SIDE` | `1000` | Largest analysis grid, in cells per side |
+| `MAX_CONCURRENT_ANALYSES` | `1` | Analyses and previews one worker process runs at once |
 | `ANALYSIS_QUEUE_TIMEOUT_S` | `30` | How long a request waits for a free slot before getting `503` |
 
-KMZ archives whose KML would unzip to more than 300 MB are rejected with
-`422`, and the analysis grid is always kept between 40 and 1500 cells per
-side. Responses are gzipped when the client accepts it.
+KMZ archives whose KML would unzip to more than 20 MB are rejected with
+`422`. Responses are gzipped when the client accepts it. On machines with
+more memory, raise the limits and run more workers (`WORKERS=4
+deploy/run_api.sh`).
 
 ## GET /health
 
