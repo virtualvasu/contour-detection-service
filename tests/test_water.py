@@ -120,3 +120,22 @@ def test_water_bodies_endpoint_without_water(monkeypatch, result, status):
 def test_water_bodies_endpoint_rejects_huge_areas():
     response = _client().get("/waterBodies", params={**QUERY, "max_lon": 82.5})
     assert response.status_code == 422
+
+
+def test_lookup_falls_back_to_the_next_server(monkeypatch):
+    import httpx
+
+    tried = []
+
+    def fake_post(url, **kwargs):
+        tried.append(url)
+        request = httpx.Request("POST", url)
+        if url == "https://first.example":
+            return httpx.Response(504, request=request)
+        return httpx.Response(200, json={"elements": [{"type": "way", "id": 1}]}, request=request)
+
+    monkeypatch.setattr(water, "OVERPASS_URLS", ["https://first.example", "https://second.example"])
+    monkeypatch.setattr(water.httpx, "post", fake_post)
+
+    assert water._fetch_elements(BOUNDS) == [{"type": "way", "id": 1}]
+    assert tried == ["https://first.example", "https://second.example"]
