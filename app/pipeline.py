@@ -8,10 +8,12 @@ function and get back a plain response object.
 from __future__ import annotations
 
 import numpy as np
+from shapely.geometry.base import BaseGeometry
 
 from app.catchment import build_pond_candidate, find_sink_candidates, mask_to_polygon
 from app.kml_parser import parse_contours
 from app.schemas import AnalyzeContourResponse, ContourLineOut, LonLat, PondSite, TerrainSummary
+from app.selection import clip_contours
 from app.terrain import build_dem, compute_flow_model, simplify_contours_for_display
 
 TOP_N_SITES = 3
@@ -29,11 +31,16 @@ def _ring_to_lonlat_models(ring: list[tuple[float, float]]) -> list[LonLat]:
 
 
 def analyze_contour_file(
-    raw_bytes: bytes, filename: str, cell_size_m: float | None = None
+    raw_bytes: bytes,
+    filename: str,
+    cell_size_m: float | None = None,
+    area: BaseGeometry | None = None,
 ) -> AnalyzeContourResponse:
     contours = parse_contours(raw_bytes)
+    if area is not None:
+        contours = clip_contours(contours, area)
 
-    dem = build_dem(contours, cell_size_m=cell_size_m)
+    dem = build_dem(contours, cell_size_m=cell_size_m, area=area)
     flow_model = compute_flow_model(dem)
 
     sinks = find_sink_candidates(flow_model, top_n=CANDIDATE_POOL_SIZE)
@@ -65,7 +72,7 @@ def analyze_contour_file(
             )
         )
 
-    valid_elev = dem.elevation[dem.valid_mask]
+    valid_elev = dem.elevation[dem.valid_mask & dem.area_mask]
     terrain_summary = TerrainSummary(
         min_elevation_m=float(np.min(valid_elev)),
         max_elevation_m=float(np.max(valid_elev)),

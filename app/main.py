@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from fastapi import FastAPI, File, HTTPException, Query, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.pipeline import analyze_contour_file
 from app.schemas import AnalyzeContourResponse
+from app.selection import parse_area
 
 app = FastAPI(
     title="Contour Detection Service",
@@ -42,6 +43,11 @@ async def analyze_contour(
         "take longer to compute. Omit to pick a resolution automatically "
         "based on the map's size.",
     ),
+    area: str | None = Form(
+        None,
+        description="Land area to analyze, as a GeoJSON Polygon or "
+        "MultiPolygon in lon/lat. Omit to analyze the whole map.",
+    ),
 ) -> AnalyzeContourResponse:
     upload = contour_map or file
     if upload is None:
@@ -56,6 +62,9 @@ async def analyze_contour(
         raise HTTPException(status_code=400, detail="Uploaded file is empty")
 
     try:
-        return analyze_contour_file(raw_bytes, filename=name, cell_size_m=cell_size_m)
+        selected_area = parse_area(area) if area else None
+        return analyze_contour_file(
+            raw_bytes, filename=name, cell_size_m=cell_size_m, area=selected_area
+        )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
