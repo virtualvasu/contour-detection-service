@@ -38,11 +38,14 @@ OVERPASS_URLS = os.environ.get(
 USER_AGENT = "contour-detection-service/0.1 (pond site planning)"
 
 # The public Overpass servers answer this query in anything from ~2 to ~20
-# seconds, so allow LOOKUP_TIMEOUT_S per server before moving on. After
-# every server has failed, lookups are skipped for RETRY_AFTER_FAILURE_S
-# instead of queueing more queries on struggling servers (they also
-# rate-limit each IP).
-LOOKUP_TIMEOUT_S = float(os.environ.get("WATER_LOOKUP_TIMEOUT_S", "20"))
+# seconds, and an overloaded one often answers the very next attempt (a
+# 504 or a hang is usually transient). So a lookup keeps cycling through
+# OVERPASS_URLS, giving each attempt up to LOOKUP_TIMEOUT_S, until one
+# answers or LOOKUP_BUDGET_S has passed. After that, lookups are skipped
+# for RETRY_AFTER_FAILURE_S instead of queueing more queries on struggling
+# servers (they also rate-limit each IP).
+LOOKUP_TIMEOUT_S = float(os.environ.get("WATER_LOOKUP_TIMEOUT_S", "15"))
+LOOKUP_BUDGET_S = float(os.environ.get("WATER_LOOKUP_BUDGET_S", "45"))
 RETRY_AFTER_FAILURE_S = 10
 
 # Overpass servers publish IPv6 addresses too, and on hosts without IPv6
@@ -99,14 +102,19 @@ def _query(bounds: tuple[float, float, float, float]) -> str:
 
 def _fetch_elements(bounds: tuple[float, float, float, float]) -> list[dict]:
     query = _query(bounds)
-    for url in OVERPASS_URLS:
+    deadline = time.monotonic() + LOOKUP_BUDGET_S
+    attempt = 0
+    while (remaining := deadline - time.monotonic()) > 1:
+        url = OVERPASS_URLS[attempt % len(OVERPASS_URLS)]
+        attempt += 1
         try:
-            response = _client.post(url, data={"data": query}, timeout=LOOKUP_TIMEOUT_S)
+            response = _client.post(url, data={"data": query}, timeout=min(LOOKUP_TIMEOUT_S, remaining))
             response.raise_for_status()
             return response.json()["elements"]
         except (httpx.HTTPError, ValueError, KeyError) as exc:
-            logger.warning("Water lookup on %s failed: %r", url, exc)
-    raise WaterLookupError("No Overpass server answered")
+            logger.warning("Water lookup attempt %d on %s failed: %r", attempt, url, exc)
+            time.sleep(min(1.0, max(0.0, deadline - time.monotonic())))
+    raise WaterLookupError(f"No Overpass server answered in {attempt} attempts")
 
 
 def _lonlat(points: list[dict]) -> list[tuple[float, float]]:
@@ -173,13 +181,15 @@ def find_water(bounds: tuple[float, float, float, float]) -> BaseGeometry | None
         if time.monotonic() < _unavailable_until:
             raise WaterLookupError("OpenStreetMap was unavailable a moment ago")
 
-    # round outwards, so the cached area always covers the requested one
+    # round outwards, so the cached area always covers the requested one;
+    # the small nudge stops float error (81.2814 * 1e4 = 812813.99999...)
+    # from turning the same area into different cache keys
     min_lon, min_lat, max_lon, max_lat = bounds
     rounded = (
-        float(np.floor(min_lon * 1e4) / 1e4),
-        float(np.floor(min_lat * 1e4) / 1e4),
-        float(np.ceil(max_lon * 1e4) / 1e4),
-        float(np.ceil(max_lat * 1e4) / 1e4),
+        float(np.floor(min_lon * 1e4 + 1e-6) / 1e4),
+        float(np.floor(min_lat * 1e4 + 1e-6) / 1e4),
+        float(np.ceil(max_lon * 1e4 - 1e-6) / 1e4),
+        float(np.ceil(max_lat * 1e4 - 1e-6) / 1e4),
     )
     try:
         return _cached_water(rounded)
