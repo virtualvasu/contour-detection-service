@@ -21,8 +21,9 @@ from lxml import etree
 _NUMBER_RE = re.compile(r"-?\d+(?:\.\d+)?")
 
 # A KMZ is compressed, so a small upload can expand to a huge KML. Refuse to
-# unpack anything bigger than this rather than running out of memory.
-MAX_UNZIPPED_KML_BYTES = 300 * 1024 * 1024
+# unpack anything bigger than an uncompressed upload is allowed to be,
+# rather than running out of memory.
+MAX_UNZIPPED_KML_BYTES = 20 * 1024 * 1024
 
 
 @dataclass

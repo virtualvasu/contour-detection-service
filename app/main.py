@@ -14,9 +14,10 @@ from app.pipeline import analyze_contour_file, preview_contour_file
 from app.schemas import AnalyzeContourResponse, ContourPreviewResponse
 from app.selection import parse_area
 
-# Largest contour map accepted, in MB. Bigger files are rejected up front
-# instead of tying up a worker for minutes.
-MAX_UPLOAD_BYTES = int(float(os.environ.get("MAX_UPLOAD_MB", "50")) * 1024 * 1024)
+# Largest contour map accepted, in MB. Parsing a KML takes roughly 8x its
+# size in memory, so 20 MB keeps a worker well inside a 512 MB machine
+# (the sample map is 6.7 MB).
+MAX_UPLOAD_BYTES = int(float(os.environ.get("MAX_UPLOAD_MB", "20")) * 1024 * 1024)
 
 # How many analyses one worker process runs at the same time. Each one is
 # CPU- and memory-heavy, so running many at once just makes all of them slow;
