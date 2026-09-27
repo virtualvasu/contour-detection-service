@@ -40,8 +40,16 @@ TOP_N_SITES = 3
 CANDIDATE_POOL_SIZE = 10
 
 
+# 6 decimal places of a degree is ~0.1 m, far finer than any grid cell, so
+# the extra digits would only make the response bigger.
+COORD_DECIMALS = 6
+
+
 def _ring_to_lonlat_models(ring: list[tuple[float, float]]) -> list[LonLat]:
-    return [LonLat(lon=lon, lat=lat) for lon, lat in ring]
+    return [
+        LonLat(lon=round(lon, COORD_DECIMALS), lat=round(lat, COORD_DECIMALS))
+        for lon, lat in ring
+    ]
 
 
 def analyze_contour_file(
