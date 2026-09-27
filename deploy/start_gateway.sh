@@ -8,8 +8,8 @@
 #
 #   cd frontend && npm ci && npm run build
 #
-# LISTEN_PORT (default 8080) is where the app is served. Stop the gateway
-# with: nginx -p "$PWD/deploy" -c nginx.generated.conf -s stop
+# LISTEN_PORT (default 8080) is where the app is served. nginx runs in the
+# foreground, so start this inside tmux (or with nohup); Ctrl-C stops it.
 set -euo pipefail
 
 if [ "$#" -eq 0 ]; then
@@ -36,6 +36,7 @@ awk -v servers="${servers%$'\n'}" -v port="$LISTEN_PORT" '
     { gsub(/__LISTEN_PORT__/, port); print }
 ' "$DEPLOY_DIR/nginx.conf.template" > "$DEPLOY_DIR/nginx.generated.conf"
 
-nginx -p "$DEPLOY_DIR" -c nginx.generated.conf -t
-nginx -p "$DEPLOY_DIR" -c nginx.generated.conf
+# -e: the packaged default error log path isn't writable without root
+nginx -p "$DEPLOY_DIR" -e logs/error.log -c nginx.generated.conf -t
 echo "Serving on port $LISTEN_PORT, balancing across: $*"
+exec nginx -p "$DEPLOY_DIR" -e logs/error.log -c nginx.generated.conf -g "daemon off;"
