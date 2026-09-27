@@ -144,6 +144,12 @@ def analyze_contour(
         description="Land area to analyze, as a GeoJSON Polygon or "
         "MultiPolygon in lon/lat. Omit to analyze the whole map.",
     ),
+    exclude: str | None = Form(
+        None,
+        description="Land to leave out of the analysis, such as rivers and "
+        "lakes (see /waterBodies), as a GeoJSON Polygon or MultiPolygon in "
+        "lon/lat. No pond site, pond or catchment is placed in it.",
+    ),
 ) -> AnalyzeContourResponse:
     name, raw_bytes = _read_upload(contour_map, file)
 
@@ -158,6 +164,7 @@ def analyze_contour(
                 rainfall_mm=rainfall_mm,
                 runoff_coefficient=runoff_coefficient,
                 include_contours=include_contours,
+                exclude=parse_area(exclude) if exclude else None,
             )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc

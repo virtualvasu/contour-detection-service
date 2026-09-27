@@ -8,6 +8,7 @@ function and get back a plain response object.
 from __future__ import annotations
 
 import numpy as np
+from shapely.geometry import box
 from shapely.geometry.base import BaseGeometry
 
 from app.catchment import (
@@ -60,22 +61,22 @@ def _ring_to_lonlat_models(ring: list[tuple[float, float]]) -> list[LonLat]:
     ]
 
 
+def _contour_bounds(contours) -> tuple[float, float, float, float]:
+    lons = np.array([p[0] for c in contours for p in c.points])
+    lats = np.array([p[1] for c in contours for p in c.points])
+    return float(lons.min()), float(lats.min()), float(lons.max()), float(lats.max())
+
+
 def preview_contour_file(raw_bytes: bytes, filename: str) -> ContourPreviewResponse:
     """Parse a contour map just far enough to draw it, so the user can pick
     an area on it before running the (much slower) analysis."""
     contours = parse_contours(raw_bytes)
-    lons = np.array([p[0] for c in contours for p in c.points])
-    lats = np.array([p[1] for c in contours for p in c.points])
+    min_lon, min_lat, max_lon, max_lat = _contour_bounds(contours)
     elevations = [c.elevation for c in contours]
 
     return ContourPreviewResponse(
         source_file=filename,
-        bounds=Bounds(
-            min_lon=float(lons.min()),
-            min_lat=float(lats.min()),
-            max_lon=float(lons.max()),
-            max_lat=float(lats.max()),
-        ),
+        bounds=Bounds(min_lon=min_lon, min_lat=min_lat, max_lon=max_lon, max_lat=max_lat),
         min_elevation_m=min(elevations),
         max_elevation_m=max(elevations),
         contour_interval_m=detect_contour_interval(contours),
@@ -95,8 +96,21 @@ def analyze_contour_file(
     rainfall_mm: float = DEFAULT_RAINFALL_MM,
     runoff_coefficient: float = DEFAULT_RUNOFF_COEFFICIENT,
     include_contours: bool = True,
+    exclude: BaseGeometry | None = None,
 ) -> AnalyzeContourResponse:
     contours = parse_contours(raw_bytes)
+
+    # Land to leave out, e.g. rivers and lakes: a river bed is the lowest
+    # ground around, so left in it would be picked as a pond site.
+    if exclude is not None:
+        region = area if area is not None else box(*_contour_bounds(contours))
+        area = region.difference(exclude)
+        if area.is_empty or area.area == 0:
+            raise ValueError(
+                "Nothing is left of the selected area once water and other "
+                "excluded land is removed. Select some land."
+            )
+
     if area is not None:
         contours = clip_contours(contours, area)
 
