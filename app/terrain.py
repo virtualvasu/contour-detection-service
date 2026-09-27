@@ -18,9 +18,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
+import shapely
 from pyproj import CRS, Transformer
 from scipy.interpolate import griddata
 from shapely.geometry import LineString
+from shapely.geometry.base import BaseGeometry
+from shapely.ops import transform as transform_geometry
 
 from app.kml_parser import ContourLine
 
@@ -53,6 +56,7 @@ def _utm_crs_for_lonlat(lon: float, lat: float) -> CRS:
 class Dem:
     elevation: np.ndarray          # (rows, cols) float grid, NaN outside data extent
     valid_mask: np.ndarray         # bool grid, True where elevation is real (not extrapolated)
+    area_mask: np.ndarray          # bool grid, True inside the selected area (all True if none)
     cell_size: float               # metres per cell (square cells)
     x_coords: np.ndarray           # (cols,) cell-center x in projected metres
     y_coords: np.ndarray           # (rows,) cell-center y in projected metres, descending
@@ -82,7 +86,11 @@ class FlowModel:
     order_desc: np.ndarray         # flat indices of valid cells sorted by elevation, high -> low
 
 
-def build_dem(contours: list[ContourLine], cell_size_m: float | None = None) -> Dem:
+def build_dem(
+    contours: list[ContourLine],
+    cell_size_m: float | None = None,
+    area: BaseGeometry | None = None,
+) -> Dem:
     """Build the elevation grid.
 
     `cell_size_m` lets the caller ask for a specific grid resolution
@@ -91,6 +99,9 @@ def build_dem(contours: list[ContourLine], cell_size_m: float | None = None) -> 
     the resulting grid is still kept between _MIN_GRID_SIDE and
     _MAX_GRID_SIDE cells per side, so requests for extremely fine detail
     are capped rather than left unbounded.
+
+    `area` is the lon/lat polygon the user selected, if any. Cells outside
+    it are flagged in `area_mask` so later steps can ignore them.
     """
     if cell_size_m is not None and cell_size_m <= 0:
         raise ValueError("cell_size_m must be greater than 0")
@@ -138,9 +149,16 @@ def build_dem(contours: list[ContourLine], cell_size_m: float | None = None) -> 
         nearest = griddata(points, all_elevs, (grid_x, grid_y), method="nearest")
         elevation = np.where(valid_mask, elevation, nearest)
 
+    if area is not None:
+        area_projected = transform_geometry(to_utm.transform, area)
+        area_mask = shapely.contains_xy(area_projected, grid_x, grid_y)
+    else:
+        area_mask = np.ones_like(valid_mask)
+
     return Dem(
         elevation=elevation,
         valid_mask=valid_mask,
+        area_mask=area_mask,
         cell_size=float(cell_size),
         x_coords=x_coords,
         y_coords=y_coords,
@@ -204,7 +222,9 @@ def compute_flow_model(dem: Dem) -> FlowModel:
         steepest_drop = np.where(better, drop, steepest_drop)
 
     # A cell with no positive-drop neighbour is a sink (local depression) or a no-data cell.
-    flow_to = np.where(steepest_drop > 0, flow_to, -1)
+    # Cells outside the selected area don't route water anywhere, so they never
+    # end up inside a catchment.
+    flow_to = np.where((steepest_drop > 0) & dem.area_mask.ravel(), flow_to, -1)
 
     order_desc = np.argsort(-flat_elev, kind="stable")
 

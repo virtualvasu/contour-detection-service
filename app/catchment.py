@@ -51,11 +51,11 @@ class PondCandidate:
 def find_sink_candidates(flow_model: FlowModel, top_n: int = 3) -> list[tuple[int, int]]:
     """Return the `top_n` low points (sinks), sorted by how much land drains into them."""
     flow_to = flow_model.flow_to
-    rows, cols = flow_to.shape
     valid = flow_model.dem.valid_mask
 
-    interior = np.zeros_like(valid)
-    interior[1:-1, 1:-1] = True
+    # Sinks right on the edge of the grid or of the selected area are
+    # usually just where the terrain was cut off, not real depressions.
+    interior = ndimage.binary_erosion(flow_model.dem.area_mask, structure=np.ones((3, 3)))
 
     is_sink = (flow_to == -1) & valid & interior
     sink_rows, sink_cols = np.where(is_sink)
