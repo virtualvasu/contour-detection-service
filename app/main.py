@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.catchment import DEFAULT_RAINFALL_MM, DEFAULT_RUNOFF_COEFFICIENT
 from app.pipeline import analyze_contour_file
 from app.schemas import AnalyzeContourResponse
 from app.selection import parse_area
@@ -43,6 +44,20 @@ async def analyze_contour(
         "take longer to compute. Omit to pick a resolution automatically "
         "based on the map's size.",
     ),
+    rainfall_mm: float = Query(
+        DEFAULT_RAINFALL_MM,
+        gt=0,
+        le=10_000,
+        description="Rainfall to estimate collectible water for, in mm "
+        "(e.g. the area's average annual rainfall).",
+    ),
+    runoff_coefficient: float = Query(
+        DEFAULT_RUNOFF_COEFFICIENT,
+        gt=0,
+        le=1,
+        description="Share of rainfall that runs off the land instead of "
+        "soaking in (0-1).",
+    ),
     area: str | None = Form(
         None,
         description="Land area to analyze, as a GeoJSON Polygon or "
@@ -64,7 +79,12 @@ async def analyze_contour(
     try:
         selected_area = parse_area(area) if area else None
         return analyze_contour_file(
-            raw_bytes, filename=name, cell_size_m=cell_size_m, area=selected_area
+            raw_bytes,
+            filename=name,
+            cell_size_m=cell_size_m,
+            area=selected_area,
+            rainfall_mm=rainfall_mm,
+            runoff_coefficient=runoff_coefficient,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
