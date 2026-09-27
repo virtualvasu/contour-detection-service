@@ -448,3 +448,17 @@
 .map.is-drawing .leaflet-interactive {
   cursor: crosshair;
 }
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.check input {
+  width: 1.05rem;
+  height: 1.05rem;
+  accent-color: var(--action);
+}

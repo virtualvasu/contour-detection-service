@@ -1,5 +1,5 @@
-import { useCallback, useRef, useState } from 'react'
-import { analyzeArea, previewMap } from './api'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { analyzeArea, fetchWater, previewMap } from './api'
 import { formatArea, formatMetres } from './format'
 import { boundsToPolygon, geometryArea, ringsBounds } from './geo'
 import MapView from './MapView'
@@ -31,6 +31,22 @@ const DRAW_HINTS = {
   Polygon: 'Click on the map to add each corner, then click the first corner again to finish.',
 }
 
+function WaterStatus({ water, onRetry }) {
+  if (!water) return null
+  const messages = {
+    loading: 'Looking up rivers, lakes and ponds on OpenStreetMap…',
+    found: 'Rivers, lakes and ponds from OpenStreetMap, greyed out on the map, will be left out.',
+    none: 'No rivers, lakes or ponds are mapped on this map.',
+  }
+  if (water.status in messages) return <p className="status">{messages[water.status]}</p>
+  return (
+    <p className="status">
+      OpenStreetMap didn't respond, so rivers and lakes won't be left out.{' '}
+      <button type="button" className="link-button" onClick={onRetry}>Try again</button>
+    </p>
+  )
+}
+
 function Step({ number, title, enabled = true, children }) {
   return (
     <li className={`step${enabled ? '' : ' is-disabled'}`}>
@@ -47,6 +63,12 @@ export default function App() {
 
   const [selection, setSelection] = useState(null)
   const [drawMode, setDrawMode] = useState(null)
+
+  // River beds are the lowest ground around, so the analysis would pick
+  // them as pond sites; mapped water is looked up and left out.
+  const [excludeWater, setExcludeWater] = useState(true)
+  const [water, setWater] = useState(null)
+  const [waterAttempt, setWaterAttempt] = useState(0)
 
   const [rainfall, setRainfall] = useState('1200')
   const [runoffCoefficient, setRunoffCoefficient] = useState('0.3')
@@ -105,6 +127,37 @@ export default function App() {
 
   const handleDrawEnd = useCallback(() => setDrawMode(null), [])
 
+  // Look the water up for the whole map as soon as it's loaded, so the
+  // (sometimes slow) OpenStreetMap lookup runs while the land is being
+  // selected and the analysis itself never waits on it. Each lookup is
+  // tagged with the map it was for, so a stale answer is never shown.
+  const waterBounds = useMemo(
+    () => (preview && excludeWater ? preview.bounds : null),
+    [preview, excludeWater],
+  )
+  const waterKey = waterBounds ? `${JSON.stringify(waterBounds)}#${waterAttempt}` : null
+
+  useEffect(() => {
+    if (!waterBounds) return undefined
+    const controller = new AbortController()
+    fetchWater(waterBounds, controller.signal)
+      .then((body) => setWater({ ...body, key: waterKey }))
+      .catch((err) => {
+        if (err.name !== 'AbortError') setWater({ status: 'unavailable', geometry: null, key: waterKey })
+      })
+    return () => controller.abort()
+  }, [waterBounds, waterKey])
+
+  let currentWater = null
+  if (waterKey) currentWater = water?.key === waterKey ? water : { status: 'loading', geometry: null }
+
+  function handleExcludeWaterChange(event) {
+    setExcludeWater(event.target.checked)
+    clearResults()
+  }
+
+  const excludedWater = currentWater?.status === 'found' ? currentWater.geometry : null
+
   function handleSelectSite(rank) {
     const site = result.pond_sites.find((s) => s.rank === rank)
     setActiveRank(rank)
@@ -126,12 +179,17 @@ export default function App() {
       const body = await analyzeArea({
         file,
         area: selection,
+        exclude: excludedWater,
         cellSize: precision,
         rainfallMm: rainfall,
         runoffCoefficient,
         signal: controller.signal,
       })
-      setResult({ ...body, elapsedSeconds: (performance.now() - started) / 1000 })
+      setResult({
+        ...body,
+        elapsedSeconds: (performance.now() - started) / 1000,
+        waterLeftOut: Boolean(excludedWater),
+      })
     } catch (err) {
       if (err.name !== 'AbortError') setError(err.message)
     } finally {
@@ -145,7 +203,8 @@ export default function App() {
   }
 
   const rainfallValid = Number(rainfall) > 0 && Number(rainfall) <= 10000
-  const canAnalyze = preview && selection && rainfallValid && !analyzing
+  const waterPending = currentWater?.status === 'loading'
+  const canAnalyze = preview && selection && rainfallValid && !analyzing && !waterPending
 
   return (
     <div className="app">
@@ -202,6 +261,11 @@ export default function App() {
                 </p>
               )}
               {!drawMode && !selection && <p className="status">Draw the area to analyse on the map.</p>}
+              <label className="check">
+                <input type="checkbox" checked={excludeWater} onChange={handleExcludeWaterChange} />
+                <span>Leave out rivers, lakes and ponds</span>
+              </label>
+              <WaterStatus water={currentWater} onRetry={() => setWaterAttempt((n) => n + 1)} />
             </Step>
 
             <Step number={3} title="Rainfall and land cover" enabled={Boolean(preview)}>
@@ -258,6 +322,7 @@ export default function App() {
           drawMode={drawMode}
           onSelect={handleSelect}
           onDrawEnd={handleDrawEnd}
+          excludedWater={excludedWater}
           sites={result?.pond_sites ?? []}
           activeRank={activeRank}
           onSiteClick={handleSelectSite}

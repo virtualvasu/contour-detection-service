@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from 'react'
 import { formatArea, formatCoord, formatMetres, formatVolume } from './format'
-import { CONTOUR, SELECTION, WATER, siteColor } from './palette'
+import { CONTOUR, EXCLUDED, SELECTION, WATER, siteColor } from './palette'
 
 // How full the pond gets from one season of runoff, as a fill bar inside
 // its storage capacity. This is the number a planner acts on: a pond that
@@ -59,10 +59,13 @@ function SiteItem({ site, active, onSelect }) {
   )
 }
 
-function Legend() {
+function Legend({ waterLeftOut }) {
   return (
     <ul className="legend">
       <li><i style={{ borderColor: SELECTION }} className="key key-dashed" /> Selected land</li>
+      {waterLeftOut && (
+        <li><i style={{ background: EXCLUDED }} className="key key-fill" /> River, lake or pond: left out</li>
+      )}
       <li><i style={{ borderColor: '#555' }} className="key key-dashed" /> Catchment: land that drains to a site</li>
       <li><i style={{ background: WATER }} className="key key-fill" /> Pond footprint at full capacity</li>
       <li><i style={{ background: CONTOUR }} className="key key-line" /> Contour line</li>
@@ -71,7 +74,7 @@ function Legend() {
 }
 
 export default function Results({ result, activeRank, onSelectSite }) {
-  const { pond_sites: sites, terrain, runoff, elapsedSeconds } = result
+  const { pond_sites: sites, terrain, runoff, elapsedSeconds, waterLeftOut } = result
   const sectionRef = useRef(null)
 
   // The results appear below the form, often out of view; bring them in.
@@ -89,7 +92,8 @@ export default function Results({ result, activeRank, onSelectSite }) {
         <>
           <p className="note">
             Ranked by how much the pond can store. Collectible water assumes {runoff.rainfall_mm} mm of
-            rain with a runoff coefficient of {runoff.runoff_coefficient}. Select a site to zoom to it.
+            rain with a runoff coefficient of {runoff.runoff_coefficient}.
+            {waterLeftOut && ' Rivers, lakes and ponds were left out.'} Select a site to zoom to it.
           </p>
           <ol className="site-list">
             {sites.map((site) => (
@@ -99,7 +103,7 @@ export default function Results({ result, activeRank, onSelectSite }) {
         </>
       )}
 
-      <Legend />
+      <Legend waterLeftOut={waterLeftOut} />
 
       <details className="terrain">
         <summary>Terrain details</summary>
