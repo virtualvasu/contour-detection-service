@@ -160,7 +160,7 @@ answer any request and capacity grows by adding machines:
    start the API:
 
    ```bash
-   deploy/run_api.sh          # PORT=8000, one worker
+   tmux new -d -s backend "PORT=8000 deploy/run_api.sh"   # one worker
    ```
 
    One worker handles one analysis at a time (~100 MB idle, ~300 MB while
@@ -175,15 +175,18 @@ answer any request and capacity grows by adding machines:
    scp -r dist <user>@<machine-1>:<repo>/frontend/
    ```
 
-3. **Machine 1** — start the gateway with all four API addresses:
+3. **Machine 1** — start the gateway with the API machines' addresses
+   (their internal lab IPs, which avoid the public port forwarding):
 
    ```bash
-   deploy/start_gateway.sh 10.1.75.53:8000 <machine-2>:8000 <machine-3>:8000 <machine-4>:8000
+   tmux new -d -s gateway "LISTEN_PORT=8080 deploy/start_gateway.sh <machine-2>:8000 <machine-3>:8000 <machine-4>:8000"
    ```
 
-   It runs nginx without root from `deploy/`, serves the app on port 8080
-   (`LISTEN_PORT` to change) and sends each `/api` request to the least
-   busy machine, retrying on another one if a machine is busy or down.
+   It runs nginx without root from `deploy/` (install it with
+   `sudo apt install nginx`; the system service isn't needed), serves the
+   app on `LISTEN_PORT` and sends each `/api` request to the least busy
+   machine, retrying on another one if a machine is busy or down. Stop it
+   with Ctrl-C in its tmux session (`tmux attach -t gateway`).
 
 Memory limits (upload size, contour points per analysis, grid size) are
 listed in `docs/API.md`; they keep a worker inside 512 MB, and were
