@@ -7,6 +7,7 @@ import threading
 
 from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 
 from app.catchment import DEFAULT_RAINFALL_MM, DEFAULT_RUNOFF_COEFFICIENT
 from app.pipeline import analyze_contour_file
@@ -41,6 +42,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+# Responses are mostly coordinate lists, which compress very well.
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 
 @app.get("/health")
