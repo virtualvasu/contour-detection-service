@@ -443,3 +443,8 @@
   outline: 3px solid var(--site);
   outline-offset: 2px;
 }
+
+.map.is-drawing,
+.map.is-drawing .leaflet-interactive {
+  cursor: crosshair;
+}

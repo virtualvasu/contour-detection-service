@@ -28,7 +28,7 @@ const LAND_COVER_OPTIONS = [
 
 const DRAW_HINTS = {
   Rectangle: 'Click one corner on the map, then click the opposite corner.',
-  Polygon: 'Click on the map to add corners. Click the first corner again to finish.',
+  Polygon: 'Click on the map to add each corner, then click the first corner again to finish.',
 }
 
 function Step({ number, title, enabled = true, children }) {

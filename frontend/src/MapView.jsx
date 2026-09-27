@@ -4,9 +4,7 @@
 
 import { useEffect, useMemo } from 'react'
 import L from 'leaflet'
-import '@geoman-io/leaflet-geoman-free'
 import 'leaflet/dist/leaflet.css'
-import '@geoman-io/leaflet-geoman-free/dist/leaflet-geoman.css'
 import {
   GeoJSON,
   LayerGroup,
@@ -53,41 +51,77 @@ function FlyTo({ target }) {
   return null
 }
 
-// Hooks Geoman's drawing tools up to React state. `drawMode` is 'Rectangle',
-// 'Polygon' or null; the drawn shape is handed to onSelect as GeoJSON and
-// removed from the map again, since the selection is rendered from state.
+// Lets the user draw the selection straight on the map. 'Rectangle' takes
+// two clicks on opposite corners; 'Polygon' takes a click per corner and
+// finishes when the first corner is clicked again. Esc stops drawing. The
+// finished shape goes to onSelect as GeoJSON; the selection itself is
+// rendered from state, so the in-progress outline is removed afterwards.
+const CLOSE_DISTANCE_PX = 12
+
 function DrawController({ drawMode, onSelect, onDrawEnd }) {
   const map = useMap()
 
   useEffect(() => {
-    const handleCreate = (e) => {
-      const geometry = e.layer.toGeoJSON().geometry
-      map.removeLayer(e.layer)
-      onSelect(geometry)
-    }
-    map.on('pm:create', handleCreate)
-    return () => map.off('pm:create', handleCreate)
-  }, [map, onSelect])
-
-  useEffect(() => {
     if (!drawMode) return undefined
-    map.pm.enableDraw(drawMode, {
-      snappable: false,
-      pathOptions: SELECTION_STYLE,
-      templineStyle: { color: SELECTION },
-      hintlineStyle: { color: SELECTION, dashArray: '4 4' },
+
+    const corners = []
+    const outline = L.polygon([], { ...SELECTION_STYLE, interactive: false }).addTo(map)
+    const start = L.circleMarker([0, 0], {
+      radius: 6, color: SELECTION, weight: 2, fillColor: '#fff', fillOpacity: 1, interactive: false,
     })
-    map.on('pm:drawend', onDrawEnd)
+
+    const finish = (latlngs) => onSelect(L.polygon(latlngs).toGeoJSON().geometry)
+
+    const rectangleCorners = (a, b) => [a, [a.lat, b.lng], b, [b.lat, a.lng]]
+
+    const handleClick = (e) => {
+      if (drawMode === 'Rectangle') {
+        if (corners.length === 0) {
+          corners.push(e.latlng)
+        } else if (map.latLngToContainerPoint(corners[0]).distanceTo(e.containerPoint) >= CLOSE_DISTANCE_PX) {
+          finish(rectangleCorners(corners[0], e.latlng))
+        }
+        return
+      }
+      if (corners.length === 0) start.setLatLng(e.latlng).addTo(map)
+      const closesShape = corners.length >= 3
+        && map.latLngToContainerPoint(corners[0]).distanceTo(e.containerPoint) < CLOSE_DISTANCE_PX
+      if (closesShape) {
+        finish(corners)
+      } else {
+        corners.push(e.latlng)
+        outline.setLatLngs(corners)
+      }
+    }
+
+    const handleMove = (e) => {
+      if (corners.length === 0) return
+      outline.setLatLngs(drawMode === 'Rectangle'
+        ? rectangleCorners(corners[0], e.latlng)
+        : [...corners, e.latlng])
+    }
+
     const handleKey = (e) => {
-      if (e.key === 'Escape') map.pm.disableDraw()
+      if (e.key === 'Escape') onDrawEnd()
     }
+
+    const container = map.getContainer()
+    container.classList.add('is-drawing')
+    map.doubleClickZoom.disable()
+    map.on('click', handleClick)
+    map.on('mousemove', handleMove)
     document.addEventListener('keydown', handleKey)
+
     return () => {
+      container.classList.remove('is-drawing')
+      map.doubleClickZoom.enable()
+      map.off('click', handleClick)
+      map.off('mousemove', handleMove)
       document.removeEventListener('keydown', handleKey)
-      map.off('pm:drawend', onDrawEnd)
-      map.pm.disableDraw()
+      outline.remove()
+      start.remove()
     }
-  }, [map, drawMode, onDrawEnd])
+  }, [map, drawMode, onSelect, onDrawEnd])
 
   return null
 }
