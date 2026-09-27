@@ -25,12 +25,25 @@ their catchment area and estimated storage volume.
   grid is still capped between 40 and 1500 cells per side as a safety
   limit, so an extreme request degrades to the closest allowed
   resolution rather than hanging.
+- Form field `area` (optional) — the land area to analyze, as a GeoJSON
+  `Polygon` or `MultiPolygon` (or a `Feature` wrapping one) in lon/lat.
+  Contour lines are clipped to it, and pond sites and catchments are only
+  looked for inside it. Omit it to analyze the whole map. Selecting a
+  smaller area also makes the analysis faster.
 
 Example — default resolution:
 
 ```bash
 curl -X POST http://localhost:8000/analyzeContour \
   -F "contour_map=@samples/contours_1m.kml"
+```
+
+Example — analyze only a selected area:
+
+```bash
+curl -X POST http://localhost:8000/analyzeContour \
+  -F "contour_map=@samples/contours_1m.kml" \
+  -F 'area={"type":"Polygon","coordinates":[[[81.2814,21.2398],[81.2970,21.2398],[81.2970,21.2636],[81.2814,21.2636],[81.2814,21.2398]]]}'
 ```
 
 Example — request finer 3m cells:
@@ -119,7 +132,7 @@ the analysis grid's resolution.
 | Status | Cause |
 |---|---|
 | `400` | File extension is not `.kml`/`.kmz`, or the uploaded file is empty |
-| `422` | No file was sent under `contour_map` (or `file`), the file could not be parsed as valid KML/KMZ, or no usable contour lines / no plausible pond depressions were found in it |
+| `422` | No file was sent under `contour_map` (or `file`), the file could not be parsed as valid KML/KMZ, `area` is not a valid GeoJSON polygon or contains no contour lines, or no usable contour lines / no plausible pond depressions were found |
 
 ## GET /health
 
