@@ -20,6 +20,10 @@ from lxml import etree
 
 _NUMBER_RE = re.compile(r"-?\d+(?:\.\d+)?")
 
+# A KMZ is compressed, so a small upload can expand to a huge KML. Refuse to
+# unpack anything bigger than this rather than running out of memory.
+MAX_UNZIPPED_KML_BYTES = 300 * 1024 * 1024
+
 
 @dataclass
 class ContourLine:
@@ -76,6 +80,8 @@ def _load_kml_bytes(raw: bytes) -> bytes:
                     raise ValueError("KMZ archive does not contain a .kml file")
                 # Prefer doc.kml if present, matching common KMZ conventions.
                 kml_names.sort(key=lambda n: (n.lower() != "doc.kml", n))
+                if zf.getinfo(kml_names[0]).file_size > MAX_UNZIPPED_KML_BYTES:
+                    raise ValueError("KML inside the KMZ archive is too large to process")
                 return zf.read(kml_names[0])
         except zipfile.BadZipFile as exc:
             raise ValueError("Uploaded file looks like a KMZ but is not a valid zip archive") from exc
