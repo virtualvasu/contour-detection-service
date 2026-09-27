@@ -135,7 +135,7 @@ def test_lookup_falls_back_to_the_next_server(monkeypatch):
         return httpx.Response(200, json={"elements": [{"type": "way", "id": 1}]}, request=request)
 
     monkeypatch.setattr(water, "OVERPASS_URLS", ["https://first.example", "https://second.example"])
-    monkeypatch.setattr(water.httpx, "post", fake_post)
+    monkeypatch.setattr(water._client, "post", fake_post)
 
     assert water._fetch_elements(BOUNDS) == [{"type": "way", "id": 1}]
     assert tried == ["https://first.example", "https://second.example"]

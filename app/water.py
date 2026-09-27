@@ -45,6 +45,15 @@ USER_AGENT = "contour-detection-service/0.1 (pond site planning)"
 LOOKUP_TIMEOUT_S = float(os.environ.get("WATER_LOOKUP_TIMEOUT_S", "20"))
 RETRY_AFTER_FAILURE_S = 10
 
+# Overpass servers publish IPv6 addresses too, and on hosts without IPv6
+# routing (like the lab containers) connections to them fail outright
+# rather than falling back to IPv4. Binding to an IPv4 address keeps every
+# lookup on IPv4.
+_client = httpx.Client(
+    transport=httpx.HTTPTransport(local_address="0.0.0.0"),
+    headers={"User-Agent": USER_AGENT},
+)
+
 # Largest area, in degrees per side, that water is looked up for; keeps
 # queries to the shared Overpass servers reasonable.
 MAX_LOOKUP_SPAN_DEG = 0.5
@@ -92,12 +101,7 @@ def _fetch_elements(bounds: tuple[float, float, float, float]) -> list[dict]:
     query = _query(bounds)
     for url in OVERPASS_URLS:
         try:
-            response = httpx.post(
-                url,
-                data={"data": query},
-                headers={"User-Agent": USER_AGENT},
-                timeout=LOOKUP_TIMEOUT_S,
-            )
+            response = _client.post(url, data={"data": query}, timeout=LOOKUP_TIMEOUT_S)
             response.raise_for_status()
             return response.json()["elements"]
         except (httpx.HTTPError, ValueError, KeyError) as exc:
