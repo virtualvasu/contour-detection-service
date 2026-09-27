@@ -25,10 +25,10 @@ function errorMessage(status, body) {
   return `The server returned an error (${status}).`
 }
 
-async function post(url, formData, signal) {
+async function request(url, options) {
   let response
   try {
-    response = await fetch(url, { method: 'POST', body: formData, signal })
+    response = await fetch(url, options)
   } catch (err) {
     if (err.name === 'AbortError') throw err
     throw new Error('Could not reach the analysis server. Check that it is running.')
@@ -41,18 +41,25 @@ async function post(url, formData, signal) {
 export function previewMap(file, signal) {
   const formData = new FormData()
   formData.append('contour_map', file)
-  return post(endpoint('/previewContour'), formData, signal)
+  return request(endpoint('/previewContour'), { method: 'POST', body: formData, signal })
 }
 
-export function analyzeArea({ file, area, cellSize, rainfallMm, runoffCoefficient, signal }) {
+// Rivers, lakes and ponds (from OpenStreetMap) within lon/lat bounds, to
+// leave out of the analysis.
+export function fetchWater(bounds, signal) {
+  return request(endpoint('/waterBodies', bounds), { signal })
+}
+
+export function analyzeArea({ file, area, exclude, cellSize, rainfallMm, runoffCoefficient, signal }) {
   const formData = new FormData()
   formData.append('contour_map', file)
   formData.append('area', JSON.stringify(area))
+  if (exclude) formData.append('exclude', JSON.stringify(exclude))
   const url = endpoint('/analyzeContour', {
     cell_size_m: cellSize,
     rainfall_mm: rainfallMm,
     runoff_coefficient: runoffCoefficient,
     include_contours: 'false',
   })
-  return post(url, formData, signal)
+  return request(url, { method: 'POST', body: formData, signal })
 }
