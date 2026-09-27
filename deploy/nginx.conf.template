@@ -1,0 +1,82 @@
+# Gateway for the lab deployment: serves the built frontend and spreads
+# /api requests over the API instances. Generated into nginx.generated.conf
+# by start_gateway.sh, which fills in the upstream servers; paths are
+# relative to the deploy/ directory, so nginx can run without root.
+
+worker_processes auto;
+pid nginx.pid;
+error_log logs/error.log warn;
+
+events {
+    worker_connections 1024;
+}
+
+http {
+    types {
+        text/html                html;
+        text/css                 css;
+        application/javascript   js;
+        application/json         json;
+        image/svg+xml            svg;
+        image/png                png;
+    }
+    default_type application/octet-stream;
+
+    access_log logs/access.log;
+    sendfile on;
+
+    # Keep temp files under deploy/ too; the packaged defaults live in
+    # system directories that a normal lab account can't write to.
+    client_body_temp_path client_body_temp;
+    proxy_temp_path proxy_temp;
+    fastcgi_temp_path fastcgi_temp;
+    uwsgi_temp_path uwsgi_temp;
+    scgi_temp_path scgi_temp;
+
+    # Compress the frontend bundle; API responses arrive already gzipped.
+    gzip on;
+    gzip_types text/css application/javascript application/json image/svg+xml;
+
+    upstream analysis_api {
+        # Send each request to the instance with the fewest in flight, since
+        # analyses take seconds and vary a lot in cost.
+        least_conn;
+__API_SERVERS__
+        keepalive 16;
+    }
+
+    server {
+        listen __LISTEN_PORT__;
+
+        root ../frontend/dist;
+
+        # Matches the API's MAX_UPLOAD_MB default.
+        client_max_body_size 50m;
+
+        location /api/ {
+            proxy_pass http://analysis_api/;
+            proxy_http_version 1.1;
+            proxy_set_header Connection "";
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+
+            proxy_read_timeout 180s;
+            proxy_send_timeout 180s;
+
+            # The API keeps no state between requests, so a request that
+            # hits a busy (503) or unreachable machine can safely be retried
+            # on the next one, even though it is a POST.
+            proxy_next_upstream error timeout http_502 http_503 non_idempotent;
+            proxy_next_upstream_tries 3;
+        }
+
+        # Vite puts a content hash in asset file names, so they never change.
+        location /assets/ {
+            expires 30d;
+            add_header Cache-Control "public, immutable";
+        }
+
+        location / {
+            try_files $uri /index.html;
+        }
+    }
+}

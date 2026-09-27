@@ -1,0 +1,4 @@
+nginx.generated.conf
+nginx.pid
+logs/
+*_temp/
