@@ -3,7 +3,9 @@
 # by start_gateway.sh, which fills in the upstream servers; paths are
 # relative to the deploy/ directory, so nginx can run without root.
 
-worker_processes auto;
+# One worker handles thousands of connections and keeps memory low on the
+# 512 MB lab machines; all the heavy work happens in the API.
+worker_processes 1;
 pid nginx.pid;
 error_log logs/error.log warn;
 
