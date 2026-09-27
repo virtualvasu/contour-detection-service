@@ -10,9 +10,23 @@ from __future__ import annotations
 import numpy as np
 from shapely.geometry.base import BaseGeometry
 
-from app.catchment import build_pond_candidate, find_sink_candidates, mask_to_polygon
+from app.catchment import (
+    DEFAULT_RAINFALL_MM,
+    DEFAULT_RUNOFF_COEFFICIENT,
+    build_pond_candidate,
+    expected_runoff_m3,
+    find_sink_candidates,
+    mask_to_polygon,
+)
 from app.kml_parser import parse_contours
-from app.schemas import AnalyzeContourResponse, ContourLineOut, LonLat, PondSite, TerrainSummary
+from app.schemas import (
+    AnalyzeContourResponse,
+    ContourLineOut,
+    LonLat,
+    PondSite,
+    RunoffAssumptions,
+    TerrainSummary,
+)
 from app.selection import clip_contours
 from app.terrain import build_dem, compute_flow_model, simplify_contours_for_display
 
@@ -35,6 +49,8 @@ def analyze_contour_file(
     filename: str,
     cell_size_m: float | None = None,
     area: BaseGeometry | None = None,
+    rainfall_mm: float = DEFAULT_RAINFALL_MM,
+    runoff_coefficient: float = DEFAULT_RUNOFF_COEFFICIENT,
 ) -> AnalyzeContourResponse:
     contours = parse_contours(raw_bytes)
     if area is not None:
@@ -55,6 +71,7 @@ def analyze_contour_file(
         )
         catchment_rings = [_ring_to_lonlat_models(r) for r in mask_to_polygon(candidate.catchment_cells, dem)]
         pond_rings = [_ring_to_lonlat_models(r) for r in mask_to_polygon(candidate.pond_mask, dem)]
+        runoff_m3 = expected_runoff_m3(candidate.catchment_area_m2, rainfall_mm, runoff_coefficient)
 
         pond_sites.append(
             PondSite(
@@ -67,6 +84,9 @@ def analyze_contour_file(
                 catchment_area_hectares=candidate.catchment_area_m2 / 10_000,
                 pond_area_m2=candidate.pond_area_m2,
                 estimated_volume_m3=candidate.volume_m3,
+                expected_runoff_m3=runoff_m3,
+                # a pond can't hold more than it can store, nor more than drains into it
+                collectible_volume_m3=min(runoff_m3, candidate.volume_m3),
                 catchment_boundary=catchment_rings,
                 pond_boundary=pond_rings,
             )
@@ -92,6 +112,7 @@ def analyze_contour_file(
     return AnalyzeContourResponse(
         source_file=filename,
         terrain=terrain_summary,
+        runoff=RunoffAssumptions(rainfall_mm=rainfall_mm, runoff_coefficient=runoff_coefficient),
         pond_sites=pond_sites,
         contours=display_contours,
     )

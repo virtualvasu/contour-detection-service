@@ -20,6 +20,8 @@ class PondSite(BaseModel):
     catchment_area_hectares: float
     pond_area_m2: float
     estimated_volume_m3: float
+    expected_runoff_m3: float
+    collectible_volume_m3: float
     catchment_boundary: list[list[LonLat]]
     pond_boundary: list[list[LonLat]]
 
@@ -40,8 +42,14 @@ class TerrainSummary(BaseModel):
     projected_crs: str
 
 
+class RunoffAssumptions(BaseModel):
+    rainfall_mm: float
+    runoff_coefficient: float
+
+
 class AnalyzeContourResponse(BaseModel):
     source_file: str
     terrain: TerrainSummary
+    runoff: RunoffAssumptions
     pond_sites: list[PondSite]
     contours: list[ContourLineOut]

@@ -33,6 +33,13 @@ MAX_FLOOD_LEVELS = 200    # safety cap on how many contour steps we flood-fill u
 # general, not something read from any specific map.
 MAX_POND_DEPTH_M = 5.0
 
+# Defaults for the collectible-water estimate. Annual rainfall is a typical
+# figure for central India; the runoff coefficient (share of rain that runs
+# off instead of soaking in) is a common value for rural, partly cultivated
+# land. Both can be overridden per request.
+DEFAULT_RAINFALL_MM = 1200.0
+DEFAULT_RUNOFF_COEFFICIENT = 0.3
+
 
 @dataclass
 class PondCandidate:
@@ -173,6 +180,11 @@ def mask_to_polygon(mask: np.ndarray, dem) -> list[list[tuple[float, float]]]:
         rings.append(list(zip(lons.tolist() if hasattr(lons, "tolist") else lons,
                                lats.tolist() if hasattr(lats, "tolist") else lats)))
     return rings
+
+
+def expected_runoff_m3(catchment_area_m2: float, rainfall_mm: float, runoff_coefficient: float) -> float:
+    """Rational-method runoff: the rain falling on the catchment that runs off to the site."""
+    return catchment_area_m2 * (rainfall_mm / 1000.0) * runoff_coefficient
 
 
 def build_pond_candidate(flow_model: FlowModel, sink: tuple[int, int]) -> PondCandidate:
