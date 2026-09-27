@@ -66,7 +66,7 @@ class Dem:
     contour_interval: float        # vertical spacing between input contour lines, in metres
 
 
-def _detect_contour_interval(contours: list[ContourLine]) -> float:
+def detect_contour_interval(contours: list[ContourLine]) -> float:
     """Work out the spacing between contour lines from the input file itself.
 
     We read this from the elevations on the original contour lines, not
@@ -84,6 +84,22 @@ class FlowModel:
     flow_to: np.ndarray            # (rows, cols) int, flat index of downhill neighbour, -1 if sink/no-data
     flow_accum_cells: np.ndarray   # (rows, cols) int, number of cells (incl. self) draining through this cell
     order_desc: np.ndarray         # flat indices of valid cells sorted by elevation, high -> low
+
+
+def _vertex_arrays(contours: list[ContourLine]) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """All contour vertices as flat lon, lat and elevation arrays."""
+    lons = np.concatenate([np.array([p[0] for p in c.points]) for c in contours])
+    lats = np.concatenate([np.array([p[1] for p in c.points]) for c in contours])
+    elevs = np.concatenate([np.full(len(c.points), c.elevation) for c in contours])
+    return lons, lats, elevs
+
+
+def _projection_for(lons: np.ndarray, lats: np.ndarray) -> tuple[CRS, Transformer, Transformer]:
+    """Pick the UTM zone at the centre of the points, plus transformers to and from it."""
+    crs = _utm_crs_for_lonlat(float(np.mean(lons)), float(np.mean(lats)))
+    to_utm = Transformer.from_crs("EPSG:4326", crs, always_xy=True)
+    to_lonlat = Transformer.from_crs(crs, "EPSG:4326", always_xy=True)
+    return crs, to_utm, to_lonlat
 
 
 def build_dem(
@@ -106,16 +122,8 @@ def build_dem(
     if cell_size_m is not None and cell_size_m <= 0:
         raise ValueError("cell_size_m must be greater than 0")
 
-    all_lons = np.concatenate([np.array([p[0] for p in c.points]) for c in contours])
-    all_lats = np.concatenate([np.array([p[1] for p in c.points]) for c in contours])
-    all_elevs = np.concatenate(
-        [np.full(len(c.points), c.elevation) for c in contours]
-    )
-
-    center_lon, center_lat = float(np.mean(all_lons)), float(np.mean(all_lats))
-    crs = _utm_crs_for_lonlat(center_lon, center_lat)
-    to_utm = Transformer.from_crs("EPSG:4326", crs, always_xy=True)
-    to_lonlat = Transformer.from_crs(crs, "EPSG:4326", always_xy=True)
+    all_lons, all_lats, all_elevs = _vertex_arrays(contours)
+    crs, to_utm, to_lonlat = _projection_for(all_lons, all_lats)
 
     xs, ys = to_utm.transform(all_lons, all_lats)
     xs, ys = np.asarray(xs), np.asarray(ys)
@@ -165,7 +173,7 @@ def build_dem(
         transformer_to_lonlat=to_lonlat,
         transformer_to_projected=to_utm,
         crs=crs,
-        contour_interval=_detect_contour_interval(contours),
+        contour_interval=detect_contour_interval(contours),
     )
 
 
