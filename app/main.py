@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import threading
 
 from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,6 +16,15 @@ from app.selection import parse_area
 # Largest contour map accepted, in MB. Bigger files are rejected up front
 # instead of tying up a worker for minutes.
 MAX_UPLOAD_BYTES = int(float(os.environ.get("MAX_UPLOAD_MB", "50")) * 1024 * 1024)
+
+# How many analyses one worker process runs at the same time. Each one is
+# CPU- and memory-heavy, so running many at once just makes all of them slow;
+# requests over the limit wait up to ANALYSIS_QUEUE_TIMEOUT_S for a free slot
+# and then get a 503 telling the client to retry. Scale out by adding worker
+# processes / machines rather than raising this.
+MAX_CONCURRENT_ANALYSES = int(os.environ.get("MAX_CONCURRENT_ANALYSES", "2"))
+ANALYSIS_QUEUE_TIMEOUT_S = float(os.environ.get("ANALYSIS_QUEUE_TIMEOUT_S", "30"))
+_analysis_slots = threading.BoundedSemaphore(MAX_CONCURRENT_ANALYSES)
 
 app = FastAPI(
     title="Contour Detection Service",
@@ -90,6 +100,12 @@ def analyze_contour(
     if not raw_bytes:
         raise HTTPException(status_code=400, detail="Uploaded file is empty")
 
+    if not _analysis_slots.acquire(timeout=ANALYSIS_QUEUE_TIMEOUT_S):
+        raise HTTPException(
+            status_code=503,
+            detail="Server is busy with other analyses, please try again shortly",
+            headers={"Retry-After": "5"},
+        )
     try:
         selected_area = parse_area(area) if area else None
         return analyze_contour_file(
@@ -102,3 +118,5 @@ def analyze_contour(
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    finally:
+        _analysis_slots.release()

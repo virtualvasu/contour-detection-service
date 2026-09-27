@@ -6,6 +6,7 @@ that the shape of the output stays valid and physically sensible.
 """
 
 import pathlib
+import threading
 
 import pytest
 from fastapi.testclient import TestClient
@@ -102,3 +103,19 @@ def test_api_rejects_oversized_upload(monkeypatch):
         files={"contour_map": ("big.kml", b"x" * 11, "application/vnd.google-earth.kml+xml")},
     )
     assert response.status_code == 413
+
+
+def test_api_returns_503_when_all_analysis_slots_are_busy(monkeypatch):
+    slots = threading.BoundedSemaphore(1)
+    slots.acquire()  # another analysis is holding the only slot
+    monkeypatch.setattr("app.main._analysis_slots", slots)
+    monkeypatch.setattr("app.main.ANALYSIS_QUEUE_TIMEOUT_S", 0.01)
+
+    client = TestClient(app)
+    with open(SAMPLE_PATH, "rb") as f:
+        response = client.post(
+            "/analyzeContour",
+            files={"contour_map": ("contours_1m.kml", f, "application/vnd.google-earth.kml+xml")},
+        )
+    assert response.status_code == 503
+    assert response.headers["retry-after"] == "5"
