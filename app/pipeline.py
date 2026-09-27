@@ -21,14 +21,22 @@ from app.catchment import (
 from app.kml_parser import parse_contours
 from app.schemas import (
     AnalyzeContourResponse,
+    Bounds,
     ContourLineOut,
+    ContourPreviewResponse,
     LonLat,
     PondSite,
     RunoffAssumptions,
     TerrainSummary,
 )
 from app.selection import clip_contours
-from app.terrain import build_dem, compute_flow_model, simplify_contours_for_display
+from app.terrain import (
+    build_dem,
+    compute_flow_model,
+    detect_contour_interval,
+    simplify_contours_for_display,
+    simplify_contours_for_preview,
+)
 
 TOP_N_SITES = 3
 
@@ -50,6 +58,33 @@ def _ring_to_lonlat_models(ring: list[tuple[float, float]]) -> list[LonLat]:
         LonLat(lon=round(lon, COORD_DECIMALS), lat=round(lat, COORD_DECIMALS))
         for lon, lat in ring
     ]
+
+
+def preview_contour_file(raw_bytes: bytes, filename: str) -> ContourPreviewResponse:
+    """Parse a contour map just far enough to draw it, so the user can pick
+    an area on it before running the (much slower) analysis."""
+    contours = parse_contours(raw_bytes)
+    lons = np.array([p[0] for c in contours for p in c.points])
+    lats = np.array([p[1] for c in contours for p in c.points])
+    elevations = [c.elevation for c in contours]
+
+    return ContourPreviewResponse(
+        source_file=filename,
+        bounds=Bounds(
+            min_lon=float(lons.min()),
+            min_lat=float(lats.min()),
+            max_lon=float(lons.max()),
+            max_lat=float(lats.max()),
+        ),
+        min_elevation_m=min(elevations),
+        max_elevation_m=max(elevations),
+        contour_interval_m=detect_contour_interval(contours),
+        contour_line_count=len(contours),
+        contours=[
+            ContourLineOut(elevation_m=elevation, points=_ring_to_lonlat_models(points))
+            for elevation, points in simplify_contours_for_preview(contours)
+        ],
+    )
 
 
 def analyze_contour_file(

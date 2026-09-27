@@ -47,6 +47,23 @@ class RunoffAssumptions(BaseModel):
     runoff_coefficient: float
 
 
+class Bounds(BaseModel):
+    min_lon: float
+    min_lat: float
+    max_lon: float
+    max_lat: float
+
+
+class ContourPreviewResponse(BaseModel):
+    source_file: str
+    bounds: Bounds
+    min_elevation_m: float
+    max_elevation_m: float
+    contour_interval_m: float
+    contour_line_count: int
+    contours: list[ContourLineOut]
+
+
 class AnalyzeContourResponse(BaseModel):
     source_file: str
     terrain: TerrainSummary
