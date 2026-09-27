@@ -82,3 +82,41 @@ def test_lookup_failure_pauses_further_lookups(monkeypatch):
     with pytest.raises(WaterLookupError):
         find_water(BOUNDS)
     assert len(calls) == 1  # the second request didn't wait on the network again
+
+
+def _client():
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    return TestClient(app)
+
+
+QUERY = {"min_lon": 81.28, "min_lat": 21.24, "max_lon": 81.32, "max_lat": 21.27}
+
+
+def test_water_bodies_endpoint_returns_geojson(monkeypatch):
+    lake = water_geometry([_way({"natural": "water"}, _square(81.29, 21.25, 0.002))], BOUNDS)
+    monkeypatch.setattr("app.main.find_water", lambda bounds: lake)
+
+    body = _client().get("/waterBodies", params=QUERY).json()
+
+    assert body["status"] == "found"
+    assert body["geometry"]["type"] == "MultiPolygon"
+
+
+@pytest.mark.parametrize("result, status", [(None, "none"), (WaterLookupError("down"), "unavailable")])
+def test_water_bodies_endpoint_without_water(monkeypatch, result, status):
+    def fake_find_water(bounds):
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    monkeypatch.setattr("app.main.find_water", fake_find_water)
+    body = _client().get("/waterBodies", params=QUERY).json()
+    assert body == {"status": status, "geometry": None}
+
+
+def test_water_bodies_endpoint_rejects_huge_areas():
+    response = _client().get("/waterBodies", params={**QUERY, "max_lon": 82.5})
+    assert response.status_code == 422
