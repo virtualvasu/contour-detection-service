@@ -1,0 +1,17 @@
+# Metrics are pushed in by the collector over OTLP (--web.enable-otlp-receiver),
+# so there is nothing to scrape.
+global:
+  evaluation_interval: 15s
+
+otlp:
+  # Prometheus labels only service.name (as job) and service.instance.id (as
+  # instance) by default; also label by machine, to compare the lab machines.
+  promote_resource_attributes:
+    - host.name
+    - service.name
+    - deployment.environment.name
+
+storage:
+  tsdb:
+    # the collector may deliver a batch a little after its timestamp
+    out_of_order_time_window: 5m

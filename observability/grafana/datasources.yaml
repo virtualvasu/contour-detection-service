@@ -1,0 +1,26 @@
+# Grafana data sources. Traces are viewed in Jaeger's own UI (Grafana's
+# Jaeger data source still uses the API that Jaeger 2.21 no longer has), so
+# each log line links to its trace there.
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    url: http://prometheus:9090
+    isDefault: true
+    jsonData:
+      # the collector pushes metrics every 10 s
+      timeInterval: 10s
+
+  - name: Loki
+    uid: loki
+    type: loki
+    url: http://loki:3100
+    jsonData:
+      derivedFields:
+        - name: Trace
+          matcherType: label
+          matcherRegex: trace_id
+          url: "http://127.0.0.1:16686/trace/$${__value.raw}"
+          urlDisplayLabel: Open in Jaeger

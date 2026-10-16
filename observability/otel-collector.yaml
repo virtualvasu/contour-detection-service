@@ -1,0 +1,49 @@
+# OpenTelemetry Collector: receives OTLP from the API machines and the
+# browser, and routes each signal to its backend.
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+        # the browser posts traces here, through the dev server or nginx
+        cors:
+          allowed_origins: ["*"]
+
+processors:
+  # keeps the collector itself from running out of memory under a burst
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 400
+  batch: {}
+
+exporters:
+  otlp_grpc/jaeger:
+    endpoint: jaeger:4317
+    tls:
+      insecure: true
+  otlp_http/prometheus:
+    endpoint: http://prometheus:9090/api/v1/otlp
+  otlp_http/loki:
+    endpoint: http://loki:3100/otlp
+  # one line per batch in `docker compose logs otel-collector`, to check
+  # telemetry is arriving at all
+  debug:
+    verbosity: basic
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlp_grpc/jaeger, debug]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlp_http/prometheus, debug]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlp_http/loki, debug]

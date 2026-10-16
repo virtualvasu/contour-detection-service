@@ -1,0 +1,79 @@
+# Where the API's telemetry goes: an OpenTelemetry Collector receiving
+# OTLP from the API (and the browser), passing traces to Jaeger, metrics to
+# Prometheus and logs to Loki, with Grafana showing all three.
+#
+#   docker compose -f observability/docker-compose.yml up -d
+#
+# Runs on your own machine: together these need far more memory than a
+# 512 MB lab machine has. Lab machines reach the collector through SSH
+# tunnels (see deploy/telemetry_tunnels.sh). Everything listens on
+# 127.0.0.1 only.
+#
+#   Grafana     http://127.0.0.1:3000   dashboards, logs, traces
+#   Jaeger      http://127.0.0.1:16686  traces
+#   Prometheus  http://127.0.0.1:9090   metrics
+#   collector   127.0.0.1:4318 (OTLP/HTTP), 127.0.0.1:4317 (OTLP/gRPC)
+
+services:
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.161.0
+    command: ["--config=/etc/otelcol/config.yaml"]
+    volumes:
+      - ./otel-collector.yaml:/etc/otelcol/config.yaml:ro
+    ports:
+      - "127.0.0.1:4317:4317"
+      - "127.0.0.1:4318:4318"
+    depends_on: [jaeger, prometheus, loki]
+    restart: unless-stopped
+
+  jaeger:
+    image: jaegertracing/jaeger:2.21.0
+    ports:
+      - "127.0.0.1:16686:16686"
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v3.15.0
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --web.enable-otlp-receiver
+      - --storage.tsdb.retention.time=30d
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "127.0.0.1:9090:9090"
+    restart: unless-stopped
+
+  loki:
+    image: grafana/loki:3.6.17
+    command: ["-config.file=/etc/loki/local-config.yaml"]
+    volumes:
+      - loki-data:/loki
+    ports:
+      - "127.0.0.1:3100:3100"
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:13.0.10
+    environment:
+      # a local demo stack: dashboards open without logging in; log in as
+      # admin / admin to use Explore (searching logs and metrics freely)
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/pond-planner.json
+    volumes:
+      - ./grafana/datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml:ro
+      - ./grafana/dashboards.yaml:/etc/grafana/provisioning/dashboards/dashboards.yaml:ro
+      - ./grafana/pond-planner.json:/var/lib/grafana/dashboards/pond-planner.json:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on: [jaeger, prometheus, loki]
+    restart: unless-stopped
+
+volumes:
+  prometheus-data:
+  loki-data:
+  grafana-data:
