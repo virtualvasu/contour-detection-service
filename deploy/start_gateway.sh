@@ -8,8 +8,10 @@
 #
 #   cd frontend && npm ci && npm run build
 #
-# LISTEN_PORT (default 8080) is where the app is served. nginx runs in the
-# foreground, so start this inside tmux (or with nohup); Ctrl-C stops it.
+# LISTEN_PORT (default 8080) is where the app is served. Browser traces are
+# passed on to the OpenTelemetry Collector at OTLP_TARGET (default
+# 127.0.0.1:4318). nginx runs in the foreground, so start this inside tmux
+# (or with nohup); Ctrl-C stops it.
 set -euo pipefail
 
 if [ "$#" -eq 0 ]; then
@@ -19,6 +21,7 @@ fi
 
 DEPLOY_DIR="$(cd "$(dirname "$0")" && pwd)"
 LISTEN_PORT="${LISTEN_PORT:-8080}"
+OTLP_TARGET="${OTLP_TARGET:-127.0.0.1:4318}"
 
 servers=""
 for server in "$@"; do
@@ -40,9 +43,9 @@ if [ -f "$DEPLOY_DIR/nginx.pid" ] && kill -0 "$(cat "$DEPLOY_DIR/nginx.pid")" 2>
 fi
 
 mkdir -p "$DEPLOY_DIR/logs"
-awk -v servers="${servers%$'\n'}" -v port="$LISTEN_PORT" '
+awk -v servers="${servers%$'\n'}" -v port="$LISTEN_PORT" -v otlp="$OTLP_TARGET" '
     /__API_SERVERS__/ { print servers; next }
-    { gsub(/__LISTEN_PORT__/, port); print }
+    { gsub(/__LISTEN_PORT__/, port); gsub(/__OTLP_TARGET__/, otlp); print }
 ' "$DEPLOY_DIR/nginx.conf.template" > "$DEPLOY_DIR/nginx.generated.conf"
 
 # -e: the packaged default error log path isn't writable without root

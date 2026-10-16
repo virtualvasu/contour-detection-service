@@ -25,10 +25,11 @@ http {
     default_type application/octet-stream;
 
     # Record which API machine served each request and how long it took, so
-    # the spread of load across machines can be checked from the log.
+    # the spread of load across machines can be checked from the log, and
+    # the trace the browser started for it, to find that request in Jaeger.
     log_format balanced '$remote_addr [$time_local] "$request" $status '
                         'upstream=$upstream_addr upstream_status=$upstream_status '
-                        'time=$request_time';
+                        'time=$request_time traceparent=$http_traceparent';
     access_log logs/access.log balanced;
     sendfile on;
 
@@ -74,6 +75,18 @@ __API_SERVERS__
             # on the next one, even though it is a POST.
             proxy_next_upstream error timeout http_502 http_503 non_idempotent;
             proxy_next_upstream_tries 3;
+        }
+
+        # Browser traces, to the OpenTelemetry Collector (reached through an
+        # SSH tunnel on the lab machines, see telemetry_tunnels.sh). Without
+        # one the browser just gets a 502 for its traces.
+        location /otlp/ {
+            proxy_pass http://__OTLP_TARGET__/;
+            proxy_http_version 1.1;
+            proxy_set_header Connection "";
+            proxy_connect_timeout 2s;
+            client_max_body_size 5m;
+            access_log off;
         }
 
         # Vite puts a content hash in asset file names, so they never change.
