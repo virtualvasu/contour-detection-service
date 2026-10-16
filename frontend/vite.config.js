@@ -12,6 +12,11 @@ export default defineConfig({
         target: process.env.API_PROXY_TARGET || 'http://127.0.0.1:8000',
         rewrite: (path) => path.replace(/^\/api/, ''),
       },
+      // Browser traces, to a local OpenTelemetry Collector (see observability/).
+      '/otlp': {
+        target: process.env.OTLP_PROXY_TARGET || 'http://127.0.0.1:4318',
+        rewrite: (path) => path.replace(/^\/otlp/, ''),
+      },
     },
   },
 })
