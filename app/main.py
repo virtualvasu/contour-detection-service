@@ -2,19 +2,25 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import threading
+import time
 from contextlib import contextmanager
 
 from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
+from opentelemetry import trace
 
+from app import telemetry
 from app.catchment import DEFAULT_RAINFALL_MM, DEFAULT_RUNOFF_COEFFICIENT
 from app.pipeline import analyze_contour_file, preview_contour_file
 from app.schemas import AnalyzeContourResponse, ContourPreviewResponse, WaterBodiesResponse
 from app.selection import parse_area
 from app.water import MAX_LOOKUP_SPAN_DEG, WaterLookupError, find_water, water_geojson
+
+logger = logging.getLogger(__name__)
 
 # Largest contour map accepted, in MB. Parsing a KML takes roughly 8x its
 # size in memory, so 20 MB keeps a worker well inside a 512 MB machine
@@ -33,17 +39,39 @@ _analysis_slots = threading.BoundedSemaphore(MAX_CONCURRENT_ANALYSES)
 
 
 @contextmanager
-def _analysis_slot():
-    if not _analysis_slots.acquire(timeout=ANALYSIS_QUEUE_TIMEOUT_S):
+def _analysis_slot(endpoint: str):
+    """Hold one of the worker's analysis slots while the request runs, and
+    record how long it queued for it, how it ended and how long it took."""
+    started = time.perf_counter()
+    with telemetry.tracer.start_as_current_span("wait for analysis slot") as span:
+        acquired = _analysis_slots.acquire(timeout=ANALYSIS_QUEUE_TIMEOUT_S)
+        waited = time.perf_counter() - started
+        span.set_attribute("pond.slot.acquired", acquired)
+    telemetry.slot_wait.record(waited, {"endpoint": endpoint})
+    if not acquired:
+        telemetry.requests_handled.add(1, {"endpoint": endpoint, "outcome": "busy"})
+        logger.warning("Turned away a %s request: no free analysis slot after %.0f s", endpoint, waited)
         raise HTTPException(
             status_code=503,
             detail="Server is busy with other analyses, please try again shortly",
             headers={"Retry-After": "5"},
         )
+
+    telemetry.slots_in_use.add(1)
+    outcome = "error"
+    started = time.perf_counter()
     try:
         yield
+        outcome = "ok"
+    except HTTPException as exc:
+        outcome = "invalid" if exc.status_code == 422 else "error"
+        raise
     finally:
         _analysis_slots.release()
+        telemetry.slots_in_use.add(-1)
+        attributes = {"endpoint": endpoint, "outcome": outcome}
+        telemetry.requests_handled.add(1, attributes)
+        telemetry.analysis_duration.record(time.perf_counter() - started, attributes)
 
 app = FastAPI(
     title="Contour Detection Service",
@@ -62,6 +90,7 @@ app.add_middleware(
 )
 # Responses are mostly coordinate lists, which compress very well.
 app.add_middleware(GZipMiddleware, minimum_size=1024)
+telemetry.setup(app, version=app.version)
 
 
 @app.get("/health")
@@ -87,6 +116,10 @@ def _read_upload(contour_map: UploadFile | None, file: UploadFile | None) -> tup
         )
     if not raw_bytes:
         raise HTTPException(status_code=400, detail="Uploaded file is empty")
+
+    span = trace.get_current_span()
+    span.set_attribute("pond.file.name", name)
+    span.set_attribute("pond.file.bytes", len(raw_bytes))
     return name, raw_bytes
 
 
@@ -122,10 +155,11 @@ def preview_contour(
     """Parse a contour map and return its outline and simplified contour
     lines, without analyzing it — for showing the map before an area is picked."""
     name, raw_bytes = _read_upload(contour_map, file)
-    with _analysis_slot():
+    with _analysis_slot("previewContour"):
         try:
             return preview_contour_file(raw_bytes, filename=name)
         except ValueError as exc:
+            logger.info("Could not preview %s: %s", name, exc)
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
@@ -177,11 +211,17 @@ def analyze_contour(
     ),
 ) -> AnalyzeContourResponse:
     name, raw_bytes = _read_upload(contour_map, file)
+    span = trace.get_current_span()
+    span.set_attribute("pond.rainfall_mm", rainfall_mm)
+    span.set_attribute("pond.runoff_coefficient", runoff_coefficient)
+    span.set_attribute("pond.area_selected", area is not None)
+    span.set_attribute("pond.water_excluded", exclude is not None)
 
-    with _analysis_slot():
+    with _analysis_slot("analyzeContour"):
+        started = time.perf_counter()
         try:
             selected_area = parse_area(area) if area else None
-            return analyze_contour_file(
+            result = analyze_contour_file(
                 raw_bytes,
                 filename=name,
                 cell_size_m=cell_size_m,
@@ -192,4 +232,15 @@ def analyze_contour(
                 exclude=parse_area(exclude) if exclude else None,
             )
         except ValueError as exc:
+            logger.info("Could not analyze %s: %s", name, exc)
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    best = result.pond_sites[0].collectible_volume_m3 if result.pond_sites else 0
+    span.set_attribute("pond.sites_found", len(result.pond_sites))
+    span.set_attribute("pond.best_site.collectible_m3", best)
+    logger.info(
+        "Analyzed %s on a %dx%d grid in %.1f s: %d pond sites, the best collects %.0f m3",
+        name, result.terrain.grid_rows, result.terrain.grid_cols,
+        time.perf_counter() - started, len(result.pond_sites), best,
+    )
+    return result
