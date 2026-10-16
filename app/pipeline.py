@@ -20,6 +20,7 @@ from app.catchment import (
     mask_to_polygon,
 )
 from app.kml_parser import parse_contours
+from app.telemetry import contour_points, sites_found, stage
 from app.schemas import (
     AnalyzeContourResponse,
     Bounds,
@@ -61,6 +62,18 @@ def _ring_to_lonlat_models(ring: list[tuple[float, float]]) -> list[LonLat]:
     ]
 
 
+def _point_count(contours) -> int:
+    return sum(len(c.points) for c in contours)
+
+
+def _parse(raw_bytes: bytes):
+    with stage("parse contours") as span:
+        contours = parse_contours(raw_bytes)
+        span.set_attribute("pond.contour_lines", len(contours))
+        span.set_attribute("pond.contour_points", _point_count(contours))
+    return contours
+
+
 def _contour_bounds(contours) -> tuple[float, float, float, float]:
     lons = np.array([p[0] for c in contours for p in c.points])
     lats = np.array([p[1] for c in contours for p in c.points])
@@ -70,7 +83,7 @@ def _contour_bounds(contours) -> tuple[float, float, float, float]:
 def preview_contour_file(raw_bytes: bytes, filename: str) -> ContourPreviewResponse:
     """Parse a contour map just far enough to draw it, so the user can pick
     an area on it before running the (much slower) analysis."""
-    contours = parse_contours(raw_bytes)
+    contours = _parse(raw_bytes)
     min_lon, min_lat, max_lon, max_lat = _contour_bounds(contours)
     elevations = [c.elevation for c in contours]
 
@@ -81,11 +94,16 @@ def preview_contour_file(raw_bytes: bytes, filename: str) -> ContourPreviewRespo
         max_elevation_m=max(elevations),
         contour_interval_m=detect_contour_interval(contours),
         contour_line_count=len(contours),
-        contours=[
+        contours=_preview_lines(contours),
+    )
+
+
+def _preview_lines(contours) -> list[ContourLineOut]:
+    with stage("simplify contours"):
+        return [
             ContourLineOut(elevation_m=elevation, points=_ring_to_lonlat_models(points))
             for elevation, points in simplify_contours_for_preview(contours)
-        ],
-    )
+        ]
 
 
 def analyze_contour_file(
@@ -98,7 +116,7 @@ def analyze_contour_file(
     include_contours: bool = True,
     exclude: BaseGeometry | None = None,
 ) -> AnalyzeContourResponse:
-    contours = parse_contours(raw_bytes)
+    contours = _parse(raw_bytes)
 
     # Land to leave out, e.g. rivers and lakes: a river bed is the lowest
     # ground around, so left in it would be picked as a pond site.
@@ -112,16 +130,41 @@ def analyze_contour_file(
             )
 
     if area is not None:
-        contours = clip_contours(contours, area)
+        with stage("clip to selected area") as span:
+            contours = clip_contours(contours, area)
+            span.set_attribute("pond.contour_lines", len(contours))
+    contour_points.record(_point_count(contours))
 
-    dem = build_dem(contours, cell_size_m=cell_size_m, area=area)
-    flow_model = compute_flow_model(dem)
+    with stage("build terrain model") as span:
+        dem = build_dem(contours, cell_size_m=cell_size_m, area=area)
+        span.set_attribute("pond.grid.rows", dem.elevation.shape[0])
+        span.set_attribute("pond.grid.cols", dem.elevation.shape[1])
+        span.set_attribute("pond.grid.cell_size_m", dem.cell_size)
+        span.set_attribute("pond.crs", dem.crs.to_string())
 
-    sinks = find_sink_candidates(flow_model, top_n=CANDIDATE_POOL_SIZE)
-    candidates = [build_pond_candidate(flow_model, sink) for sink in sinks]
-    candidates.sort(key=lambda c: c.volume_m3, reverse=True)
-    candidates = candidates[:TOP_N_SITES]
+    with stage("route water"):
+        flow_model = compute_flow_model(dem)
 
+    with stage("find depressions") as span:
+        sinks = find_sink_candidates(flow_model, top_n=CANDIDATE_POOL_SIZE)
+        span.set_attribute("pond.depressions", len(sinks))
+
+    with stage("estimate pond volumes") as span:
+        candidates = [build_pond_candidate(flow_model, sink) for sink in sinks]
+        candidates.sort(key=lambda c: c.volume_m3, reverse=True)
+        candidates = candidates[:TOP_N_SITES]
+        span.set_attribute("pond.sites", len(candidates))
+    sites_found.add(len(candidates))
+
+    with stage("build response"):
+        return _response(
+            filename, contours, dem, candidates, rainfall_mm, runoff_coefficient, include_contours
+        )
+
+
+def _response(
+    filename, contours, dem, candidates, rainfall_mm, runoff_coefficient, include_contours
+) -> AnalyzeContourResponse:
     pond_sites: list[PondSite] = []
     for rank, candidate in enumerate(candidates, start=1):
         lon, lat = dem.transformer_to_lonlat.transform(
