@@ -22,10 +22,13 @@ from functools import lru_cache
 import httpx
 import numpy as np
 import shapely
+from opentelemetry import trace
 from pyproj import CRS, Transformer
 from shapely.geometry import LineString, MultiPolygon, Polygon, box, mapping
 from shapely.geometry.base import BaseGeometry
 from shapely.ops import polygonize, transform, unary_union
+
+from app.telemetry import tracer, water_lookups
 
 logger = logging.getLogger(__name__)
 
@@ -112,6 +115,7 @@ def _fetch_elements(bounds: tuple[float, float, float, float]) -> list[dict]:
             response.raise_for_status()
             return response.json()["elements"]
         except (httpx.HTTPError, ValueError, KeyError) as exc:
+            trace.get_current_span().add_event("lookup attempt failed", {"url": url, "error": repr(exc)})
             logger.warning("Water lookup attempt %d on %s failed: %r", attempt, url, exc)
             time.sleep(min(1.0, max(0.0, deadline - time.monotonic())))
     raise WaterLookupError(f"No Overpass server answered in {attempt} attempts")
@@ -176,9 +180,19 @@ def find_water(bounds: tuple[float, float, float, float]) -> BaseGeometry | None
     recently. Results are cached per area (rounded to ~10 m), since the
     same area is often analyzed repeatedly with different settings.
     """
+    with tracer.start_as_current_span("water lookup") as span:
+        try:
+            return _find_water(bounds, span)
+        except WaterLookupError as exc:
+            span.set_attribute("pond.water.outcome", str(exc))
+            raise
+
+
+def _find_water(bounds, span) -> BaseGeometry | None:
     global _unavailable_until
     with _state_lock:
         if time.monotonic() < _unavailable_until:
+            water_lookups.add(1, {"outcome": "skipped"})
             raise WaterLookupError("OpenStreetMap was unavailable a moment ago")
 
     # round outwards, so the cached area always covers the requested one;
@@ -191,9 +205,16 @@ def find_water(bounds: tuple[float, float, float, float]) -> BaseGeometry | None
         float(np.ceil(max_lon * 1e4 - 1e-6) / 1e4),
         float(np.ceil(max_lat * 1e4 - 1e-6) / 1e4),
     )
+    hits = _cached_water.cache_info().hits
     try:
-        return _cached_water(rounded)
+        geometry = _cached_water(rounded)
     except WaterLookupError:
+        water_lookups.add(1, {"outcome": "unavailable"})
         with _state_lock:
             _unavailable_until = time.monotonic() + RETRY_AFTER_FAILURE_S
         raise
+    outcome = "cached" if _cached_water.cache_info().hits > hits else "fetched"
+    water_lookups.add(1, {"outcome": outcome})
+    span.set_attribute("pond.water.outcome", outcome)
+    span.set_attribute("pond.water.found", geometry is not None)
+    return geometry
