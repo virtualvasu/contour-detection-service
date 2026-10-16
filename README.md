@@ -207,6 +207,37 @@ Run it from a machine other than the lab machines so the test itself
 doesn't take their memory. Pass `--area area.geojson` to test with a
 selected area instead of the whole map.
 
+## Monitoring with OpenTelemetry
+
+The API sends traces, metrics and logs over OTLP when
+`OTEL_EXPORTER_OTLP_ENDPOINT` is set (`app/telemetry.py`), and the
+frontend traces its API calls, so one trace follows a request from the
+browser through the gateway to each stage of the analysis. They go to an
+OpenTelemetry Collector, which passes traces to Jaeger, metrics to
+Prometheus and logs to Loki, shown in Grafana:
+
+```bash
+docker compose -f observability/docker-compose.yml up -d
+OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318 deploy/run_api.sh
+```
+
+Grafana (`http://127.0.0.1:3000`, dashboard "Pond planner"; log in as
+admin/admin for Explore) shows requests, analysis and stage times,
+queueing, water lookups, memory per machine and the logs; Jaeger
+(`http://127.0.0.1:16686`) shows the traces.
+
+On the lab machines the stack stays on your own machine (it needs far
+more than 512 MB). Keep a tunnel open to the gateway machine:
+
+```bash
+tmux new -d -s telemetry "deploy/telemetry_tunnel.sh -p <ssh-port> <user>@<machine-1>"
+```
+
+and start each API with
+`OTEL_EXPORTER_OTLP_ENDPOINT=http://<machine-1>:<gateway-port>/otlp`; the
+gateway passes it on through the tunnel. The browser's traces take the
+same path.
+
 ## Known limitations / next-phase ideas
 
 - Only the KML/KMZ "elevation in placemark name" convention is
